@@ -1,0 +1,183 @@
+// src/main/index.js - Electron 主进程入口
+const { app, ipcMain } = require('electron');
+const textCapture = require('./text-capture');
+const floatingWindow = require('./floating-window');
+const settingsWindow = require('./settings-window');
+const tray = require('./tray');
+const { getSettings, saveSettings } = require('./store');
+const { lookupWord } = require('./dictionary');
+const { classifyText, isChinese, translateSentence, aiChat } = require('./ai-client');
+
+// 简单的 Markdown 到 HTML 转换（不需要外部依赖）
+function simpleMarkdownToHtml(text) {
+  if (!text) return '';
+
+  let html = text
+    // 转义 HTML 特殊字符
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    // 代码块
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    // 行内代码
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // 粗体
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    // 斜体
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // 段落（双换行）
+    .replace(/\n\n/g, '</p><p>')
+    // 单换行转为 <br>
+    .replace(/\n/g, '<br>');
+
+  return `<p>${html}</p>`;
+}
+
+// 单实例锁
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
+
+app.on('second-instance', () => {
+  settingsWindow.openSettings();
+});
+
+// 阻止 Dock 出现（macOS），Windows 无效但无害
+app.dock?.hide();
+
+app.whenReady().then(() => {
+  // 初始化托盘（必须在 ready 之后）
+  tray.init();
+
+  // 初始化文本捕获
+  textCapture.init((text, x, y, activeWindowHandle) => {
+    floatingWindow.showWindow(text, x, y, activeWindowHandle);
+  });
+
+  // 全局鼠标按下事件，用于点击外部隐藏悬浮窗
+  // 不做坐标判断（uiohook 和 Electron 的坐标系在高 DPI 下不一致）
+  // 而是用 requestHide 的保护期机制：显示后 300ms 内的点击会被忽略
+  textCapture.setOnMouseDown(() => {
+    if (floatingWindow.isVisible()) {
+      floatingWindow.requestHide();
+    }
+  });
+
+  // 预加载悬浮窗，保持事件循环活跃并加快首次显示速度
+  floatingWindow.getOrCreateWindow();
+
+  console.log('[Main] Application ready');
+});
+
+// 关闭所有窗口时不退出（托盘常驻）
+app.on('window-all-closed', (e) => {
+  // 不调用 app.quit()
+});
+
+app.on('before-quit', () => {
+  textCapture.destroy();
+  tray.destroy();
+});
+
+// ─── IPC 处理器 ───────────────────────────────────────────
+
+// 设置读写
+ipcMain.handle('get-settings', () => getSettings());
+
+ipcMain.handle('save-settings', (event, settings) => {
+  const updated = saveSettings(settings);
+  // 通知悬浮窗设置已更新
+  const wc = floatingWindow.getWebContents();
+  if (wc) wc.send('settings-updated', updated);
+  return updated;
+});
+
+// 翻译单词
+ipcMain.handle('translate-word', async (event, word) => {
+  console.log('[IPC] translate-word called for:', word);
+  const result = await lookupWord(word);
+  console.log('[IPC] translate-word result:', result ? 'found' : 'null');
+  return result;
+});
+
+// 文本分类
+ipcMain.handle('classify-text', (event, text) => {
+  const settings = getSettings();
+  return {
+    type: classifyText(text, settings.phraseThreshold),
+    isChinese: isChinese(text)
+  };
+});
+
+// 句子翻译（流式）
+ipcMain.on('translate-sentence', (event, text) => {
+  const settings = getSettings();
+  if (!settings.apiBaseUrl || !settings.apiKey || !settings.translateModel) {
+    event.sender.send('translate-stream-error', 'API_NOT_CONFIGURED');
+    return;
+  }
+  translateSentence(
+    text,
+    (chunk) => event.sender.send('translate-stream-chunk', chunk),
+    () => event.sender.send('translate-stream-done'),
+    (err) => event.sender.send('translate-stream-error', err.message)
+  );
+});
+
+// AI 对话（流式）
+ipcMain.on('ai-chat-send', (event, { selectedText, messages }) => {
+  const settings = getSettings();
+  if (!settings.apiBaseUrl || !settings.apiKey || !settings.chatModel) {
+    event.sender.send('ai-chat-stream-error', 'API_NOT_CONFIGURED');
+    return;
+  }
+  aiChat(
+    selectedText,
+    messages,
+    (chunk) => event.sender.send('ai-chat-stream-chunk', chunk),
+    () => event.sender.send('ai-chat-stream-done'),
+    (err) => event.sender.send('ai-chat-stream-error', err.message)
+  );
+});
+
+// 调整悬浮窗大小
+ipcMain.on('resize-window', (event, { width, height }) => {
+  floatingWindow.resizeWindow(width, height);
+});
+
+// 收起悬浮窗到工具栏大小
+ipcMain.on('collapse-window', () => {
+  floatingWindow.collapseWindow();
+});
+
+// 固定/取消固定扩展悬浮窗
+ipcMain.handle('set-pinned', (event, pinned) => {
+  return floatingWindow.setPinned(pinned);
+});
+
+// 移动悬浮窗
+ipcMain.on('move-window', (event, { deltaX, deltaY }) => {
+  floatingWindow.moveWindow(deltaX, deltaY);
+});
+
+// 打开设置
+ipcMain.on('open-settings', () => {
+  settingsWindow.openSettings();
+});
+
+// 用户与悬浮窗交互（点击按钮等），重置保护期
+ipcMain.on('notify-interaction', () => {
+  floatingWindow.extendGrace();
+});
+
+// Markdown 解析（同步，供 preload 调用）
+ipcMain.on('parse-markdown', (event, text) => {
+  event.returnValue = simpleMarkdownToHtml(text);
+});
+
+// 测试 API 连通性
+ipcMain.handle('test-connection', async (event, settings) => {
+  const { testConnection } = require('./ai-client');
+  return await testConnection(settings);
+});

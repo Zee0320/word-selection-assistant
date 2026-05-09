@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置 - 划词助手</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <span class="logo-icon">🔤</span>
+        <div>
+          <h1>划词助手</h1>
+          <p class="subtitle">Word Selection Assistant</p>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- API 配置 -->
+      <section class="section">
+        <h2 class="section-title">AI 接口配置</h2>
+        <div class="field-group">
+          <div class="field">
+            <label for="api-base-url">API 地址</label>
+            <input type="url" id="api-base-url" placeholder="https://api.openai.com" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="api-key">API Key</label>
+            <div class="password-wrap">
+              <input type="password" id="api-key" placeholder="sk-..." autocomplete="off">
+              <button class="toggle-pw" id="toggle-pw" type="button" title="显示/隐藏">
+                <svg id="pw-eye" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="translate-model">翻译模型</label>
+            <div class="input-with-btn">
+              <input type="text" id="translate-model" placeholder="gpt-3.5-turbo / qwen-plus / ..." autocomplete="off">
+              <button class="btn-test-inline" id="btn-test-translate" type="button">测试</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="chat-model">对话模型</label>
+            <div class="input-with-btn">
+              <input type="text" id="chat-model" placeholder="gpt-4o / deepseek-chat / ..." autocomplete="off">
+              <button class="btn-test-inline" id="btn-test-chat" type="button">测试</button>
+            </div>
+          </div>
+        </div>
+        <div class="api-actions">
+          <div id="api-status" class="api-status hidden"></div>
+        </div>
+      </section>
+
+      <!-- 功能开关 -->
+      <section class="section">
+        <h2 class="section-title">功能开关</h2>
+        <div class="toggle-list">
+          <div class="toggle-item">
+            <div class="toggle-info">
+              <span class="toggle-label">划词翻译</span>
+              <span class="toggle-desc">单词词典查询 + 句子 AI 翻译</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="translation-enabled">
+              <span class="toggle-knob"></span>
+            </label>
+          </div>
+          <div class="toggle-item">
+            <div class="toggle-info">
+              <span class="toggle-label">AI 对话</span>
+              <span class="toggle-desc">以划词内容为上下文的 AI 聊天</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ai-chat-enabled">
+              <span class="toggle-knob"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 高级设置 -->
+      <section class="section">
+        <h2 class="section-title">高级设置</h2>
+        <div class="field">
+          <label for="phrase-threshold">
+            短语阈值：<span id="threshold-value">3</span> 个词以内按单词/短语处理
+          </label>
+          <input type="range" id="phrase-threshold" min="1" max="8" step="1" value="3">
+          <div class="range-labels">
+            <span>1（仅单词）</span>
+            <span>8（较长短语）</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div id="save-indicator" class="save-indicator hidden">
+        <span class="save-dot"></span> 已保存
+      </div>
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

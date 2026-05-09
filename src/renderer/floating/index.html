@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Word Assistant</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 工具栏 -->
+  <div id="toolbar">
+    <div class="drag-handle" title="拖动悬浮窗">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/>
+        <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
+        <circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/>
+      </svg>
+    </div>
+    <button id="btn-translate" class="toolbar-btn" title="翻译">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 5h12M9 3v2m-6 0h6m0 0a9 9 0 0 1 9 9M12 5a9 9 0 0 1 9 9m-9-9v14m0 0a9 9 0 0 0 9-9"/>
+      </svg>
+      翻译
+    </button>
+    <div class="divider"></div>
+    <button id="btn-chat" class="toolbar-btn" title="AI 对话">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      AI 对话
+    </button>
+    <div id="pin-divider" class="divider hidden"></div>
+    <button id="btn-pin" class="toolbar-btn icon-only hidden" title="固定窗口" aria-label="固定窗口">
+      <svg class="pin-icon pin-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 17v5"/>
+        <path d="M5 17h14"/>
+        <path d="M17 3 7 13"/>
+        <path d="m14 3 7 7"/>
+        <path d="m3 14 7 7"/>
+      </svg>
+      <svg class="pin-icon pin-on" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M16 3.25a1 1 0 0 1 .71.29l3.75 3.75a1 1 0 0 1 0 1.42l-2.2 2.2 1.49 1.49a1 1 0 0 1-.7 1.7h-5.11l-.94.94V22h-2v-6.96l-.94-.94H4.95a1 1 0 0 1-.7-1.7l8.04-8.04a1 1 0 0 1 .71-.29h3z"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- 翻译面板 -->
+  <div id="panel-translation" class="panel hidden">
+    <div id="word-result" class="hidden">
+      <div id="word-header">
+        <span id="word-text"></span>
+        <span id="word-phonetic"></span>
+      </div>
+      <div id="word-chinese"></div>
+      <div id="word-meanings"></div>
+    </div>
+    <div id="sentence-result" class="hidden">
+      <div id="sentence-output"></div>
+      <div id="sentence-loading" class="loading-dots hidden">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+    <div id="translation-error" class="error-msg hidden"></div>
+  </div>
+
+  <!-- AI 对话面板 -->
+  <div id="panel-chat" class="panel hidden">
+    <div id="chat-context">
+      <span id="chat-context-icon">📎</span>
+      <span id="chat-context-text"></span>
+    </div>
+    <div id="chat-messages"></div>
+    <div id="chat-input-area">
+      <textarea id="chat-input" placeholder="输入你的问题..." rows="2"></textarea>
+      <button id="chat-send-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

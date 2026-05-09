@@ -1,0 +1,60 @@
+{
+  "name": "word-selection-assistant",
+  "version": "1.0.0",
+  "description": "Global word selection assistant with translation and AI chat",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --win --x64",
+    "pack": "electron-builder --dir",
+    "rebuild": "node node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3 -w @mukea/uiohook-napi"
+  },
+  "build": {
+    "appId": "com.wordassistant.app",
+    "productName": "Word Selection Assistant",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "sign": null
+    },
+    "extraResources": [
+      {
+        "from": "assets/ecdict.db",
+        "to": "ecdict.db"
+      }
+    ],
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "!assets/ecdict.db"
+    ]
+  },
+  "keywords": [
+    "electron",
+    "translation",
+    "ai",
+    "word-selection"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.0.0"
+  },
+  "dependencies": {
+    "@mukea/uiohook-napi": "^1.5.4",
+    "better-sqlite3": "^9.4.3",
+    "electron-store": "^8.1.0",
+    "marked": "^18.0.3"
+  }
+}
