@@ -44,8 +44,16 @@
     "ai",
     "word-selection"
   ],
-  "author": "",
+  "author": "Zee0320",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Zee0320/word-selection-assistant.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Zee0320/word-selection-assistant/issues"
+  },
+  "homepage": "https://github.com/Zee0320/word-selection-assistant#readme",
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
     "electron": "^28.3.3",

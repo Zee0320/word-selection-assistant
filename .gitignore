@@ -1,6 +1,12 @@
 # Dependencies
 node_modules/
 
+# Local agent / workflow metadata
+.agent/
+.agents/
+.claude/
+openspec/
+
 # Build output
 dist/
 
