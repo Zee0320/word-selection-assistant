@@ -1,6 +1,7 @@
 // src/main/ai-client.js - OpenAI 兼容 API 客户端（支持流式）
 const { net } = require('electron');
 const { getSettings } = require('./store');
+const { buildChatCompletionsUrl, buildRequestHeaders } = require('./api-request-config');
 
 /**
  * 语言检测：判断文本是否为中文
@@ -45,14 +46,7 @@ function streamCompletion(model, messages, onChunk, onDone, onError) {
     return;
   }
 
-  let url = settings.apiBaseUrl.replace(/\/$/, '');
-  if (!url.endsWith('/chat/completions')) {
-    // 很多兼容平台如 siliconflow 只需要 /v1
-    if (!url.endsWith('/v1') && !url.includes('api.siliconflow.cn') && !url.includes('api.deepseek.com')) {
-      url += '/v1';
-    }
-    url += '/chat/completions';
-  }
+  const url = buildChatCompletionsUrl(settings);
 
   const body = JSON.stringify({
     model: model,
@@ -64,10 +58,7 @@ function streamCompletion(model, messages, onChunk, onDone, onError) {
   const request = net.request({
     method: 'POST',
     url,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.apiKey}`
-    }
+    headers: buildRequestHeaders(settings)
   });
 
   request.on('response', (response) => {
@@ -152,13 +143,7 @@ async function testConnection(settings) {
       return;
     }
 
-    let url = settings.apiBaseUrl.replace(/\/$/, '');
-    if (!url.endsWith('/chat/completions')) {
-      if (!url.endsWith('/v1') && !url.includes('api.siliconflow.cn') && !url.includes('api.deepseek.com')) {
-        url += '/v1';
-      }
-      url += '/chat/completions';
-    }
+    const url = buildChatCompletionsUrl(settings);
 
     const body = JSON.stringify({
       model: settings.modelName,
@@ -169,10 +154,7 @@ async function testConnection(settings) {
     const request = net.request({
       method: 'POST',
       url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
-      }
+      headers: buildRequestHeaders(settings)
     });
 
     request.on('response', (response) => {

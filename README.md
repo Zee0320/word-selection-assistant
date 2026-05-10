@@ -55,10 +55,12 @@ Open the settings window from the tray menu and configure:
 
 - API base URL for an OpenAI-compatible endpoint
 - API key
+- Optional API request path, such as `/v1/chat/completions` or an internal gateway path
+- Optional custom HTTP headers for intranet gateways or compatible API proxies
 - Translation model
 - Chat model
 
-The app calls `/v1/chat/completions` when needed and supports streaming responses.
+When the request path is empty, the app keeps its default behavior and calls `/v1/chat/completions` when needed. Custom headers are merged into AI requests after the default JSON and bearer authorization headers, so they can add gateway headers or override defaults when required.
 
 ## Project Structure
 

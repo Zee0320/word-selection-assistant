@@ -10,6 +10,14 @@ const schema = {
     type: 'string',
     default: ''
   },
+  apiRequestPath: {
+    type: 'string',
+    default: ''
+  },
+  customHeaders: {
+    type: 'object',
+    default: {}
+  },
   translateModel: {
     type: 'string',
     default: ''
@@ -48,6 +56,8 @@ function getSettings() {
   return {
     apiBaseUrl: store.get('apiBaseUrl'),
     apiKey: store.get('apiKey'),
+    apiRequestPath: store.get('apiRequestPath'),
+    customHeaders: store.get('customHeaders') || {},
     translateModel: store.get('translateModel'),
     chatModel: store.get('chatModel'),
     translationEnabled: store.get('translationEnabled'),
@@ -59,6 +69,8 @@ function getSettings() {
 function saveSettings(settings) {
   if (settings.apiBaseUrl !== undefined) store.set('apiBaseUrl', settings.apiBaseUrl);
   if (settings.apiKey !== undefined) store.set('apiKey', settings.apiKey);
+  if (settings.apiRequestPath !== undefined) store.set('apiRequestPath', settings.apiRequestPath);
+  if (settings.customHeaders !== undefined) store.set('customHeaders', settings.customHeaders);
   if (settings.translateModel !== undefined) store.set('translateModel', settings.translateModel);
   if (settings.chatModel !== undefined) store.set('chatModel', settings.chatModel);
   if (settings.translationEnabled !== undefined) store.set('translationEnabled', settings.translationEnabled);

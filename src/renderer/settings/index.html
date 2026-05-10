@@ -89,6 +89,22 @@
       <!-- 高级设置 -->
       <section class="section">
         <h2 class="section-title">高级设置</h2>
+        <div class="field-group">
+          <div class="field">
+            <label for="api-request-path">API 请求路径</label>
+            <input type="text" id="api-request-path" placeholder="/v1/chat/completions 或 /v2/chat/completions" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>自定义 Headers</label>
+            <div id="headers-list" class="headers-list"></div>
+            <button class="btn-secondary" id="btn-add-header" type="button">添加 Header</button>
+          </div>
+          <div class="field">
+            <label for="custom-headers-json">Headers JSON</label>
+            <textarea id="custom-headers-json" rows="5" spellcheck="false" placeholder='{"X-Env":"intranet"}'></textarea>
+          </div>
+        </div>
+        <div id="headers-error" class="headers-error hidden"></div>
         <div class="field">
           <label for="phrase-threshold">
             短语阈值：<span id="threshold-value">3</span> 个词以内按单词/短语处理

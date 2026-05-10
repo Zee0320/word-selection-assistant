@@ -2,6 +2,7 @@
 
 const apiBaseUrl = document.getElementById('api-base-url');
 const apiKey = document.getElementById('api-key');
+const apiRequestPath = document.getElementById('api-request-path');
 const translateModel = document.getElementById('translate-model');
 const chatModel = document.getElementById('chat-model');
 const translationEnabled = document.getElementById('translation-enabled');
@@ -10,12 +11,17 @@ const phraseThreshold = document.getElementById('phrase-threshold');
 const thresholdValue = document.getElementById('threshold-value');
 const saveIndicator = document.getElementById('save-indicator');
 const apiStatus = document.getElementById('api-status');
+const headersList = document.getElementById('headers-list');
+const customHeadersJson = document.getElementById('custom-headers-json');
+const headersError = document.getElementById('headers-error');
+const btnAddHeader = document.getElementById('btn-add-header');
 const btnTestTranslate = document.getElementById('btn-test-translate');
 const btnTestChat = document.getElementById('btn-test-chat');
 const togglePw = document.getElementById('toggle-pw');
 const pwEye = document.getElementById('pw-eye');
 
 let saveTimer = null;
+let isSyncingHeaders = false;
 
 // ── 初始加载 ──────────────────────────────────────────
 
@@ -23,12 +29,14 @@ async function loadSettings() {
   const settings = await window.api.getSettings();
   apiBaseUrl.value = settings.apiBaseUrl || '';
   apiKey.value = settings.apiKey || '';
+  apiRequestPath.value = settings.apiRequestPath || '';
   translateModel.value = settings.translateModel || '';
   chatModel.value = settings.chatModel || '';
   translationEnabled.checked = settings.translationEnabled;
   aiChatEnabled.checked = settings.aiChatEnabled;
   phraseThreshold.value = settings.phraseThreshold;
   thresholdValue.textContent = settings.phraseThreshold;
+  renderHeadersRows(settings.customHeaders || {});
 
   validateApiConfig(settings);
 }
@@ -43,9 +51,17 @@ function scheduleAutoSave() {
 }
 
 async function doSave() {
+  const headersResult = collectHeadersFromRows();
+  if (!headersResult.ok) {
+    showHeadersError(headersResult.error);
+    return;
+  }
+
   const settings = {
     apiBaseUrl: apiBaseUrl.value.trim(),
     apiKey: apiKey.value.trim(),
+    apiRequestPath: apiRequestPath.value.trim(),
+    customHeaders: headersResult.headers,
     translateModel: translateModel.value.trim(),
     chatModel: chatModel.value.trim(),
     translationEnabled: translationEnabled.checked,
@@ -68,7 +84,7 @@ function showSaveIndicator() {
 
 // ── 事件监听 ──────────────────────────────────────────
 
-[apiBaseUrl, apiKey, translateModel, chatModel].forEach(el => {
+[apiBaseUrl, apiKey, apiRequestPath, translateModel, chatModel].forEach(el => {
   el.addEventListener('input', scheduleAutoSave);
 });
 
@@ -78,6 +94,26 @@ function showSaveIndicator() {
 
 phraseThreshold.addEventListener('input', () => {
   thresholdValue.textContent = phraseThreshold.value;
+  scheduleAutoSave();
+});
+
+btnAddHeader.addEventListener('click', () => {
+  addHeaderRow('', '');
+  syncJsonFromRows();
+  scheduleAutoSave();
+});
+
+customHeadersJson.addEventListener('input', () => {
+  if (isSyncingHeaders) return;
+
+  const result = parseHeadersJson(customHeadersJson.value);
+  if (!result.ok) {
+    showHeadersError(result.error);
+    return;
+  }
+
+  clearHeadersError();
+  renderHeadersRows(result.headers);
   scheduleAutoSave();
 });
 
@@ -95,6 +131,13 @@ async function testModelConnection(btn, modelValue) {
     return;
   }
 
+  const headersResult = collectHeadersFromRows();
+  if (!headersResult.ok) {
+    showHeadersError(headersResult.error);
+    showApiStatus('error', '⚠ 请先修正自定义 Headers');
+    return;
+  }
+
   btn.disabled = true;
   const originalText = btn.textContent;
   btn.textContent = '测试...';
@@ -104,6 +147,8 @@ async function testModelConnection(btn, modelValue) {
   const currentSettings = {
     apiBaseUrl: apiBaseUrl.value.trim(),
     apiKey: apiKey.value.trim(),
+    apiRequestPath: apiRequestPath.value.trim(),
+    customHeaders: headersResult.headers,
     translateModel: translateModel.value.trim(),
     chatModel: chatModel.value.trim(),
     translationEnabled: translationEnabled.checked,
@@ -115,6 +160,8 @@ async function testModelConnection(btn, modelValue) {
   const testConfig = {
     apiBaseUrl: currentSettings.apiBaseUrl,
     apiKey: currentSettings.apiKey,
+    apiRequestPath: currentSettings.apiRequestPath,
+    customHeaders: currentSettings.customHeaders,
     modelName: modelValue
   };
 
@@ -160,4 +207,122 @@ function showApiStatus(type, msg) {
 
 function hideApiStatus() {
   apiStatus.classList.add('hidden');
+}
+
+function addHeaderRow(name, value) {
+  const row = document.createElement('div');
+  row.className = 'header-row';
+
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'header-name';
+  nameInput.placeholder = 'Header 名称';
+  nameInput.value = name;
+
+  const valueInput = document.createElement('input');
+  valueInput.type = 'text';
+  valueInput.className = 'header-value';
+  valueInput.placeholder = 'Header 值';
+  valueInput.value = value;
+
+  const removeButton = document.createElement('button');
+  removeButton.type = 'button';
+  removeButton.className = 'btn-icon';
+  removeButton.title = '删除 Header';
+  removeButton.textContent = '×';
+
+  row.append(nameInput, valueInput, removeButton);
+  headersList.appendChild(row);
+
+  [nameInput, valueInput].forEach(input => {
+    input.addEventListener('input', () => {
+      syncJsonFromRows();
+      scheduleAutoSave();
+    });
+  });
+
+  removeButton.addEventListener('click', () => {
+    row.remove();
+    syncJsonFromRows();
+    scheduleAutoSave();
+  });
+}
+
+function renderHeadersRows(headers) {
+  headersList.replaceChildren();
+  Object.entries(headers).forEach(([name, value]) => {
+    addHeaderRow(name, String(value));
+  });
+  syncJsonFromRows();
+}
+
+function collectHeadersFromRows() {
+  const headers = {};
+  const rows = Array.from(headersList.querySelectorAll('.header-row'));
+
+  for (const row of rows) {
+    const name = row.querySelector('.header-name').value.trim();
+    const value = row.querySelector('.header-value').value.trim();
+
+    if (!name && !value) continue;
+    if (!name) {
+      return { ok: false, error: 'Header 名称不能为空' };
+    }
+    headers[name] = value;
+  }
+
+  clearHeadersError();
+  return { ok: true, headers };
+}
+
+function parseHeadersJson(value) {
+  if (!value.trim()) {
+    return { ok: true, headers: {} };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return { ok: false, error: 'Headers JSON 格式无效' };
+  }
+
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    return { ok: false, error: 'Headers JSON 必须是对象' };
+  }
+
+  const headers = {};
+  for (const [name, headerValue] of Object.entries(parsed)) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return { ok: false, error: 'Header 名称不能为空' };
+    }
+    headers[trimmedName] = String(headerValue);
+  }
+
+  return { ok: true, headers };
+}
+
+function syncJsonFromRows() {
+  if (isSyncingHeaders) return;
+
+  const result = collectHeadersFromRows();
+  if (!result.ok) {
+    showHeadersError(result.error);
+    return;
+  }
+
+  isSyncingHeaders = true;
+  customHeadersJson.value = JSON.stringify(result.headers, null, 2);
+  isSyncingHeaders = false;
+}
+
+function showHeadersError(message) {
+  headersError.textContent = message;
+  headersError.classList.remove('hidden');
+}
+
+function clearHeadersError() {
+  headersError.textContent = '';
+  headersError.classList.add('hidden');
 }

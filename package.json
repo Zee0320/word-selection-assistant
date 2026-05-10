@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "test": "node --test tests/*.test.js",
     "build": "electron-builder --win --x64",
     "pack": "electron-builder --dir",
     "rebuild": "node node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3 -w @mukea/uiohook-napi"
