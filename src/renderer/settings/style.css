@@ -95,6 +95,51 @@ main::-webkit-scrollbar-thumb {
   margin-bottom: 14px;
 }
 
+.connection-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+}
+
+.mode-option:has(input:checked) {
+  border-color: rgba(108, 99, 255, 0.55);
+  background: rgba(108, 99, 255, 0.12);
+}
+
+.mode-option input {
+  flex-shrink: 0;
+}
+
+.mode-option span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mode-option strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.mode-option small {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
 /* ── Fields ── */
 .field-group { display: flex; flex-direction: column; gap: 12px; }
 
@@ -374,4 +419,8 @@ footer {
   20% { opacity: 1; }
   70% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+.hidden {
+  display: none !important;
 }
