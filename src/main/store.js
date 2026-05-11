@@ -1,7 +1,17 @@
 // src/main/store.js - 设置存储模块
 const Store = require('electron-store');
+const { inferConnectionMode } = require('./settings-migration');
 
 const schema = {
+  connectionMode: {
+    type: 'string',
+    enum: ['direct', 'gateway'],
+    default: 'direct'
+  },
+  connectionModeMigrated: {
+    type: 'boolean',
+    default: false
+  },
   apiBaseUrl: {
     type: 'string',
     default: ''
@@ -9,6 +19,22 @@ const schema = {
   apiKey: {
     type: 'string',
     default: ''
+  },
+  apiRequestPath: {
+    type: 'string',
+    default: ''
+  },
+  customHeaders: {
+    type: 'object',
+    default: {}
+  },
+  translateHeaders: {
+    type: 'object',
+    default: {}
+  },
+  chatHeaders: {
+    type: 'object',
+    default: {}
   },
   translateModel: {
     type: 'string',
@@ -44,10 +70,23 @@ if (store.has('modelName')) {
   store.delete('modelName');
 }
 
+if (!store.get('connectionModeMigrated')) {
+  store.set('connectionMode', inferConnectionMode({
+    apiRequestPath: store.get('apiRequestPath'),
+    customHeaders: store.get('customHeaders')
+  }));
+  store.set('connectionModeMigrated', true);
+}
+
 function getSettings() {
   return {
+    connectionMode: store.get('connectionMode'),
     apiBaseUrl: store.get('apiBaseUrl'),
     apiKey: store.get('apiKey'),
+    apiRequestPath: store.get('apiRequestPath'),
+    customHeaders: store.get('customHeaders') || {},
+    translateHeaders: store.get('translateHeaders') || {},
+    chatHeaders: store.get('chatHeaders') || {},
     translateModel: store.get('translateModel'),
     chatModel: store.get('chatModel'),
     translationEnabled: store.get('translationEnabled'),
@@ -57,8 +96,13 @@ function getSettings() {
 }
 
 function saveSettings(settings) {
+  if (settings.connectionMode !== undefined) store.set('connectionMode', settings.connectionMode);
   if (settings.apiBaseUrl !== undefined) store.set('apiBaseUrl', settings.apiBaseUrl);
   if (settings.apiKey !== undefined) store.set('apiKey', settings.apiKey);
+  if (settings.apiRequestPath !== undefined) store.set('apiRequestPath', settings.apiRequestPath);
+  if (settings.customHeaders !== undefined) store.set('customHeaders', settings.customHeaders);
+  if (settings.translateHeaders !== undefined) store.set('translateHeaders', settings.translateHeaders);
+  if (settings.chatHeaders !== undefined) store.set('chatHeaders', settings.chatHeaders);
   if (settings.translateModel !== undefined) store.set('translateModel', settings.translateModel);
   if (settings.chatModel !== undefined) store.set('chatModel', settings.chatModel);
   if (settings.translationEnabled !== undefined) store.set('translationEnabled', settings.translationEnabled);

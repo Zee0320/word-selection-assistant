@@ -3,8 +3,50 @@
 let currentText = '';
 let currentSettings = {};
 let chatMessages = [];
+let chatContext = '';
+let activeChatContext = '';
+let isChatContextFrozen = false;
 let isStreaming = false;
 let isPinned = false;
+
+/**
+ * Check if API is properly configured for the given purpose
+ * Gateway mode: baseUrl + model required (apiKey and request path optional)
+ * Direct mode: baseUrl + apiKey + model required
+ */
+function isApiConfiguredFor(purpose) {
+  const isGateway = currentSettings.connectionMode === 'gateway';
+
+  if (!currentSettings.apiBaseUrl) return false;
+  if (!isGateway && !currentSettings.apiKey) return false;
+  if (purpose === 'translate') {
+    return !!currentSettings.translateModel;
+  } else if (purpose === 'chat') {
+    return !!currentSettings.chatModel;
+  }
+  return false;
+}
+
+function getMissingConfigMessage(purpose) {
+  const isGateway = currentSettings.connectionMode === 'gateway';
+
+  if (!currentSettings.apiBaseUrl) {
+    return isGateway ? '请先配置 Gateway URL' : '请先配置 API 地址';
+  }
+  if (!isGateway && !currentSettings.apiKey) {
+    return '请先配置 API Key';
+  }
+  if (false && isGateway && !currentSettings.apiRequestPath) {
+    return '请先配置 Gateway 请求路径';
+  }
+  if (purpose === 'translate' && !currentSettings.translateModel) {
+    return '请先配置翻译模型';
+  }
+  if (purpose === 'chat' && !currentSettings.chatModel) {
+    return '请先配置对话模型';
+  }
+  return '请先在设置中配置 API 信息';
+}
 
 // DOM 引用
 const btnTranslate = document.getElementById('btn-translate');
@@ -26,6 +68,8 @@ const sentenceLoading = document.getElementById('sentence-loading');
 const translationError = document.getElementById('translation-error');
 
 const chatContextText = document.getElementById('chat-context-text');
+const chatContextClear = document.getElementById('chat-context-clear');
+const chatContextLock = document.getElementById('chat-context-lock');
 const chatMessages$ = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const chatSendBtn = document.getElementById('chat-send-btn');
@@ -89,7 +133,7 @@ window.api.onShowToolbar(({ text, settings, pinned = false, expanded = false }) 
 
   if (shouldPreservePanel === 'chat') {
     showChatPanel();
-    resetChatState();
+    updateChatContextUI();
     updatePinControls();
     return;
   }
@@ -154,9 +198,9 @@ function doSentenceTranslate() {
   sentenceOutput.setAttribute('data-raw', '');
   sentenceOutput.className = 'markdown-body';
 
-  if (!currentSettings.apiBaseUrl || !currentSettings.apiKey || !currentSettings.translateModel) {
+  if (!isApiConfiguredFor('translate')) {
     sentenceLoading.classList.add('hidden');
-    showTranslationError('请先在设置中配置 API 信息');
+    showTranslationError(getMissingConfigMessage('translate'));
     addSettingsLink();
     return;
   }
@@ -179,11 +223,11 @@ window.api.onTranslateDone(() => {
 
 window.api.onTranslateError((err) => {
   sentenceLoading.classList.add('hidden');
-  if (err === 'API_NOT_CONFIGURED') {
-    showTranslationError('请先在设置中配置 API 信息');
+  // err is now { message, action } or a legacy string
+  const errorInfo = typeof err === 'object' && err.message ? err : { message: String(err), action: 'settings' };
+  showTranslationError('⚠ ' + errorInfo.message);
+  if (errorInfo.action === 'settings') {
     addSettingsLink();
-  } else {
-    showTranslationError('翻译失败：' + err);
   }
 });
 
@@ -264,16 +308,39 @@ chatInput.addEventListener('keydown', (e) => {
   }
 });
 
+chatContextText.addEventListener('input', () => {
+  if (isChatContextFrozen) return;
+  chatContext = chatContextText.value;
+  updateChatContextUI();
+});
+
+chatContextClear.addEventListener('click', (e) => {
+  window.api.notifyInteraction();
+  e.stopPropagation();
+  if (isChatContextFrozen) return;
+  chatContext = '';
+  chatContextText.value = '';
+  updateChatContextUI();
+  chatContextText.focus();
+});
+
 function sendChatMessage() {
   const content = chatInput.value.trim();
   if (!content || isStreaming) return;
 
-  if (!currentSettings.apiBaseUrl || !currentSettings.apiKey || !currentSettings.chatModel) {
-    appendChatError('请先在设置中配置 API 信息');
+  if (!isApiConfiguredFor('chat')) {
+    appendChatError(getMissingConfigMessage('chat'));
     return;
   }
 
   chatInput.value = '';
+  if (!isChatContextFrozen) {
+    activeChatContext = chatContextText.value.trim();
+    chatContext = activeChatContext;
+    isChatContextFrozen = true;
+    updateChatContextUI();
+  }
+
   chatMessages.push({ role: 'user', content });
   appendChatMessage('user', content);
 
@@ -283,7 +350,7 @@ function sendChatMessage() {
   isStreaming = true;
   chatSendBtn.disabled = true;
 
-  window.api.aiChatSend(currentText, chatMessages);
+  window.api.aiChatSend(activeChatContext, chatMessages);
 }
 
 window.api.onAiChatChunk((chunk) => {
@@ -320,11 +387,9 @@ window.api.onAiChatError((err) => {
     chatMessages.pop();
   }
 
-  if (err === 'API_NOT_CONFIGURED') {
-    appendChatError('请先在设置中配置 API 信息');
-  } else {
-    appendChatError('请求失败：' + err);
-  }
+  // err is now { message, action } or a legacy string
+  const errorInfo = typeof err === 'object' && err.message ? err : { message: String(err), action: 'settings' };
+  appendChatError(errorInfo.message, errorInfo.action);
 });
 
 function appendChatMessage(role, content) {
@@ -341,11 +406,20 @@ function appendChatMessage(role, content) {
   return el;
 }
 
-function appendChatError(msg) {
+function appendChatError(msg, action) {
   const el = document.createElement('div');
   el.className = 'message-error';
   el.textContent = '⚠ ' + msg;
   chatMessages$.appendChild(el);
+
+  if (action === 'settings') {
+    const btn = document.createElement('button');
+    btn.textContent = '打开设置';
+    btn.style.cssText = 'margin-left:8px;padding:2px 8px;background:rgba(108,99,255,0.2);border:1px solid rgba(108,99,255,0.3);border-radius:4px;color:#6c63ff;font-size:11px;cursor:pointer;font-family:inherit;';
+    btn.onclick = () => window.api.openSettings();
+    el.appendChild(btn);
+  }
+
   chatMessages$.scrollTop = chatMessages$.scrollHeight;
 }
 
@@ -402,10 +476,28 @@ function resetTranslationUI() {
 function resetChatState() {
   chatMessages = [];
   chatMessages$.innerHTML = '';
-  chatContextText.textContent = currentText;
+  chatContext = currentText;
+  activeChatContext = '';
+  isChatContextFrozen = false;
+  updateChatContextUI();
   chatInput.value = '';
   isStreaming = false;
   chatSendBtn.disabled = false;
+}
+
+function updateChatContextUI() {
+  const displayContext = isChatContextFrozen ? activeChatContext : chatContext;
+  if (chatContextText.value !== displayContext) {
+    chatContextText.value = displayContext;
+  }
+
+  const isEmpty = displayContext.trim() === '';
+  chatContextText.readOnly = isChatContextFrozen;
+  chatContextText.placeholder = isEmpty ? 'Normal chat - no selected text context' : '';
+  chatContextClear.classList.toggle('hidden', isChatContextFrozen);
+  chatContextLock.classList.toggle('hidden', !isChatContextFrozen);
+  document.getElementById('chat-context').classList.toggle('context-empty', isEmpty);
+  document.getElementById('chat-context').classList.toggle('context-frozen', isChatContextFrozen);
 }
 
 function getActivePanel() {

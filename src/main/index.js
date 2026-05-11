@@ -1,4 +1,7 @@
 // src/main/index.js - Electron 主进程入口
+const { installSafeConsole } = require('./logger');
+installSafeConsole();
+
 const { app, ipcMain } = require('electron');
 const textCapture = require('./text-capture');
 const floatingWindow = require('./floating-window');
@@ -113,23 +116,32 @@ ipcMain.handle('classify-text', (event, text) => {
 // 句子翻译（流式）
 ipcMain.on('translate-sentence', (event, text) => {
   const settings = getSettings();
-  if (!settings.apiBaseUrl || !settings.apiKey || !settings.translateModel) {
-    event.sender.send('translate-stream-error', 'API_NOT_CONFIGURED');
+  const isGateway = settings.connectionMode === 'gateway';
+  if (!settings.apiBaseUrl || !settings.translateModel || (!isGateway && !settings.apiKey)) {
+    event.sender.send('translate-stream-error', { message: '请先在设置中配置 API 信息', action: 'settings' });
     return;
   }
   translateSentence(
     text,
     (chunk) => event.sender.send('translate-stream-chunk', chunk),
     () => event.sender.send('translate-stream-done'),
-    (err) => event.sender.send('translate-stream-error', err.message)
+    (err) => {
+      try {
+        const parsed = JSON.parse(err.message);
+        event.sender.send('translate-stream-error', parsed);
+      } catch {
+        event.sender.send('translate-stream-error', { message: err.message, action: 'settings' });
+      }
+    }
   );
 });
 
 // AI 对话（流式）
 ipcMain.on('ai-chat-send', (event, { selectedText, messages }) => {
   const settings = getSettings();
-  if (!settings.apiBaseUrl || !settings.apiKey || !settings.chatModel) {
-    event.sender.send('ai-chat-stream-error', 'API_NOT_CONFIGURED');
+  const isGateway = settings.connectionMode === 'gateway';
+  if (!settings.apiBaseUrl || !settings.chatModel || (!isGateway && !settings.apiKey)) {
+    event.sender.send('ai-chat-stream-error', { message: '请先在设置中配置 API 信息', action: 'settings' });
     return;
   }
   aiChat(
@@ -137,7 +149,14 @@ ipcMain.on('ai-chat-send', (event, { selectedText, messages }) => {
     messages,
     (chunk) => event.sender.send('ai-chat-stream-chunk', chunk),
     () => event.sender.send('ai-chat-stream-done'),
-    (err) => event.sender.send('ai-chat-stream-error', err.message)
+    (err) => {
+      try {
+        const parsed = JSON.parse(err.message);
+        event.sender.send('ai-chat-stream-error', parsed);
+      } catch {
+        event.sender.send('ai-chat-stream-error', { message: err.message, action: 'settings' });
+      }
+    }
   );
 });
 
@@ -177,7 +196,7 @@ ipcMain.on('parse-markdown', (event, text) => {
 });
 
 // 测试 API 连通性
-ipcMain.handle('test-connection', async (event, settings) => {
+ipcMain.handle('test-connection', async (event, settings, purpose) => {
   const { testConnection } = require('./ai-client');
-  return await testConnection(settings);
+  return await testConnection(settings, purpose);
 });

@@ -1,6 +1,9 @@
 // src/main/ai-client.js - OpenAI 兼容 API 客户端（支持流式）
 const { net } = require('electron');
 const { getSettings } = require('./store');
+const { buildChatCompletionsUrl, buildRequestHeaders } = require('./api-request-config');
+const { formatApiError, detectGarbledContent } = require('./api-error-formatter');
+const { buildChatMessages } = require('./chat-prompt');
 
 /**
  * 语言检测：判断文本是否为中文
@@ -31,28 +34,63 @@ function buildTranslationPrompt(text) {
 }
 
 /**
+ * Check if API is properly configured for the given mode and purpose
+ * @returns {boolean} true if configured, false otherwise
+ */
+function isApiConfigured(settings, purpose) {
+  const isGateway = settings.connectionMode === 'gateway';
+
+  // Base URL always required
+  if (!settings.apiBaseUrl) return false;
+
+  // Direct mode requires apiKey
+  if (!isGateway && !settings.apiKey) return false;
+
+  // Model required based on purpose
+  if (purpose === 'translate' || purpose === 'test-translate') {
+    if (!settings.translateModel) return false;
+  } else if (purpose === 'chat' || purpose === 'test-chat') {
+    if (!settings.chatModel) return false;
+  }
+
+  return true;
+}
+
+/**
  * 发送流式请求，通过 onChunk 回调逐块返回内容
  * @param {Array} messages - OpenAI messages 数组
+ * @param {string} purpose - Request purpose ('translate', 'chat', 'test-translate', 'test-chat')
  * @param {Function} onChunk - 每个 token 的回调 (chunk: string) => void
  * @param {Function} onDone - 完成回调
  * @param {Function} onError - 错误回调 (error: Error) => void
  */
-function streamCompletion(model, messages, onChunk, onDone, onError) {
+function streamCompletion(model, messages, purpose, onChunk, onDone, onError) {
   const settings = getSettings();
+  let settled = false;
 
-  if (!settings.apiBaseUrl || !settings.apiKey || !model) {
+  function finishWithError(error) {
+    if (settled) return;
+    settled = true;
+    onError(error);
+  }
+
+  function finishDone() {
+    if (settled) return;
+    settled = true;
+    onDone();
+  }
+
+  // Direct mode: baseUrl + apiKey + model required
+  // Gateway mode: baseUrl + model required (apiKey and request path optional)
+  if (!settings.apiBaseUrl || !model) {
     onError(new Error('API_NOT_CONFIGURED'));
     return;
   }
-
-  let url = settings.apiBaseUrl.replace(/\/$/, '');
-  if (!url.endsWith('/chat/completions')) {
-    // 很多兼容平台如 siliconflow 只需要 /v1
-    if (!url.endsWith('/v1') && !url.includes('api.siliconflow.cn') && !url.includes('api.deepseek.com')) {
-      url += '/v1';
-    }
-    url += '/chat/completions';
+  if (settings.connectionMode !== 'gateway' && !settings.apiKey) {
+    onError(new Error('API_NOT_CONFIGURED'));
+    return;
   }
+  const url = buildChatCompletionsUrl(settings);
 
   const body = JSON.stringify({
     model: model,
@@ -64,16 +102,20 @@ function streamCompletion(model, messages, onChunk, onDone, onError) {
   const request = net.request({
     method: 'POST',
     url,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.apiKey}`
-    }
+    headers: buildRequestHeaders(settings, purpose)
   });
 
   request.on('response', (response) => {
     let buffer = '';
+    let errorBody = '';
+    let consecutiveParseFailures = 0;
+    const MAX_PARSE_FAILURES = 3;
 
     response.on('data', (chunk) => {
+      if (response.statusCode !== 200) {
+        errorBody += chunk.toString();
+        return;
+      }
       buffer += chunk.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop(); // 保留最后不完整的行
@@ -87,29 +129,46 @@ function streamCompletion(model, messages, onChunk, onDone, onError) {
           const json = JSON.parse(trimmed.slice(6));
           const content = json.choices?.[0]?.delta?.content;
           if (content) {
+            // Check for garbled content in output
+            if (detectGarbledContent(content)) {
+              consecutiveParseFailures++;
+              if (consecutiveParseFailures >= MAX_PARSE_FAILURES) {
+                finishWithError(new Error(JSON.stringify({ message: '模型输出异常，请稍后重试', action: 'retry' })));
+                return;
+              }
+            } else {
+              consecutiveParseFailures = 0; // Reset on valid content
+            }
             onChunk(content);
           }
         } catch {
-          // 忽略解析错误的行
+          consecutiveParseFailures++;
+          if (consecutiveParseFailures >= MAX_PARSE_FAILURES) {
+            finishWithError(new Error(JSON.stringify({ message: '模型输出异常，请稍后重试', action: 'retry' })));
+            return;
+          }
         }
       }
     });
 
     response.on('end', () => {
-      onDone();
+      if (response.statusCode !== 200) {
+        const formatted = formatApiError(null, { statusCode: response.statusCode, body: errorBody });
+        finishWithError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
+        return;
+      }
+      finishDone();
     });
 
     response.on('error', (err) => {
-      onError(err);
+      const formatted = formatApiError(err);
+      finishWithError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
     });
-
-    if (response.statusCode !== 200) {
-      onError(new Error(`API error: HTTP ${response.statusCode}`));
-    }
   });
 
   request.on('error', (err) => {
-    onError(err);
+    const formatted = formatApiError(err);
+    finishWithError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
   });
 
   request.write(body);
@@ -126,7 +185,7 @@ function translateSentence(text, onChunk, onDone, onError) {
     { role: 'system', content: systemPrompt },
     { role: 'user', content: text }
   ];
-  streamCompletion(settings.translateModel, messages, onChunk, onDone, onError);
+  streamCompletion(settings.translateModel, messages, 'translate', onChunk, onDone, onError);
 }
 
 /**
@@ -134,31 +193,34 @@ function translateSentence(text, onChunk, onDone, onError) {
  */
 function aiChat(selectedText, messages, onChunk, onDone, onError) {
   const settings = getSettings();
-  const systemMessage = {
-    role: 'system',
-    content: `You are a helpful assistant. The user has selected the following text as context:\n\n"${selectedText}"\n\nHelp the user understand or discuss this text.`
-  };
-  const fullMessages = [systemMessage, ...messages];
-  streamCompletion(settings.chatModel, fullMessages, onChunk, onDone, onError);
+  const fullMessages = buildChatMessages(selectedText, messages);
+  streamCompletion(settings.chatModel, fullMessages, 'chat', onChunk, onDone, onError);
 }
 
 /**
  * 测试 API 连通性
+ * @param {Object} settings - Settings object with connection config
+ * @param {string} purpose - 'test-translate' or 'test-chat'
  */
-async function testConnection(settings) {
+async function testConnection(settings, purpose) {
   return new Promise((resolve) => {
-    if (!settings.apiBaseUrl || !settings.apiKey || !settings.modelName) {
-      resolve({ success: false, error: '请填写完整的 API 配置' });
+    const isGateway = settings.connectionMode === 'gateway';
+
+    // Validate required fields based on mode
+    if (!settings.apiBaseUrl) {
+      resolve({ success: false, error: isGateway ? 'Gateway URL is required.' : 'API URL is required.' });
+      return;
+    }
+    if (!isGateway && !settings.apiKey) {
+      resolve({ success: false, error: 'API key is required for Direct API mode.' });
+      return;
+    }
+    if (!settings.modelName) {
+      resolve({ success: false, error: 'Model name is required.' });
       return;
     }
 
-    let url = settings.apiBaseUrl.replace(/\/$/, '');
-    if (!url.endsWith('/chat/completions')) {
-      if (!url.endsWith('/v1') && !url.includes('api.siliconflow.cn') && !url.includes('api.deepseek.com')) {
-        url += '/v1';
-      }
-      url += '/chat/completions';
-    }
+    const url = buildChatCompletionsUrl(settings);
 
     const body = JSON.stringify({
       model: settings.modelName,
@@ -169,10 +231,7 @@ async function testConnection(settings) {
     const request = net.request({
       method: 'POST',
       url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
-      }
+      headers: buildRequestHeaders(settings, purpose)
     });
 
     request.on('response', (response) => {
@@ -182,21 +241,20 @@ async function testConnection(settings) {
         if (response.statusCode === 200) {
           resolve({ success: true });
         } else {
-          try {
-            const json = JSON.parse(data);
-            resolve({ success: false, error: json.error?.message || `HTTP ${response.statusCode}` });
-          } catch {
-            resolve({ success: false, error: `HTTP ${response.statusCode}` });
-          }
+          const formatted = formatApiError(null, { statusCode: response.statusCode, body: data });
+          resolve({ success: false, error: formatted.message, action: formatted.action });
         }
       });
     });
 
-    request.on('error', (err) => resolve({ success: false, error: err.message }));
+    request.on('error', (err) => {
+      const formatted = formatApiError(err);
+      resolve({ success: false, error: formatted.message, action: formatted.action });
+    });
     
     request.write(body);
     request.end();
   });
 }
 
-module.exports = { classifyText, isChinese, translateSentence, aiChat, buildTranslationPrompt, testConnection };
+module.exports = { classifyText, isChinese, translateSentence, aiChat, buildTranslationPrompt, testConnection, isApiConfigured };

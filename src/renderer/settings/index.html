@@ -22,6 +22,22 @@
       <!-- API 配置 -->
       <section class="section">
         <h2 class="section-title">AI 接口配置</h2>
+        <div class="connection-mode">
+          <label class="mode-option">
+            <input type="radio" name="connection-mode" value="direct">
+            <span>
+              <strong>Direct API</strong>
+              <small>Public OpenAI-compatible endpoint</small>
+            </span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="connection-mode" value="gateway">
+            <span>
+              <strong>Gateway</strong>
+              <small>Internal proxy with path or headers</small>
+            </span>
+          </label>
+        </div>
         <div class="field-group">
           <div class="field">
             <label for="api-base-url">API 地址</label>
@@ -89,6 +105,40 @@
       <!-- 高级设置 -->
       <section class="section">
         <h2 class="section-title">高级设置</h2>
+        <div class="field-group" id="gateway-settings">
+          <div class="field">
+            <label for="api-request-path">API 请求路径</label>
+            <input type="text" id="api-request-path" placeholder="/v1/chat/completions 或 /v2/chat/completions" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>共享 Gateway Headers <small>(应用于翻译和对话请求)</small></label>
+            <div id="headers-list" class="headers-list"></div>
+            <button class="btn-secondary" id="btn-add-header" type="button">添加 Header</button>
+          </div>
+          <div class="field">
+            <label for="custom-headers-json">共享 Headers JSON</label>
+            <textarea id="custom-headers-json" rows="5" spellcheck="false" placeholder='{"X-Env":"intranet"}'></textarea>
+          </div>
+          <div class="field purpose-headers">
+            <label>翻译请求 Headers <small>(覆盖共享 headers)</small></label>
+            <div id="translate-headers-list" class="headers-list"></div>
+            <button class="btn-secondary" id="btn-add-translate-header" type="button">添加 Header</button>
+          </div>
+          <div class="field purpose-headers">
+            <label for="translate-headers-json">翻译 Headers JSON</label>
+            <textarea id="translate-headers-json" rows="3" spellcheck="false" placeholder='{"X-Model-Route":"translate"}'></textarea>
+          </div>
+          <div class="field purpose-headers">
+            <label>对话请求 Headers <small>(覆盖共享 headers)</small></label>
+            <div id="chat-headers-list" class="headers-list"></div>
+            <button class="btn-secondary" id="btn-add-chat-header" type="button">添加 Header</button>
+          </div>
+          <div class="field purpose-headers">
+            <label for="chat-headers-json">对话 Headers JSON</label>
+            <textarea id="chat-headers-json" rows="3" spellcheck="false" placeholder='{"X-Model-Route":"chat"}'></textarea>
+          </div>
+        </div>
+        <div id="headers-error" class="headers-error hidden"></div>
         <div class="field">
           <label for="phrase-threshold">
             短语阈值：<span id="threshold-value">3</span> 个词以内按单词/短语处理

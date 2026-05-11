@@ -67,7 +67,14 @@
   <div id="panel-chat" class="panel hidden">
     <div id="chat-context">
       <span id="chat-context-icon">📎</span>
-      <span id="chat-context-text"></span>
+      <div id="chat-context-body">
+        <div id="chat-context-toolbar">
+          <span id="chat-context-label">Context</span>
+          <button id="chat-context-clear" type="button" title="Clear context" aria-label="Clear context">×</button>
+          <span id="chat-context-lock" class="hidden">Locked</span>
+        </div>
+        <textarea id="chat-context-text" rows="2" spellcheck="false"></textarea>
+      </div>
     </div>
     <div id="chat-messages"></div>
     <div id="chat-input-area">
