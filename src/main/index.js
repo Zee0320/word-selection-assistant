@@ -1,4 +1,7 @@
 // src/main/index.js - Electron 主进程入口
+const { installSafeConsole } = require('./logger');
+installSafeConsole();
+
 const { app, ipcMain } = require('electron');
 const textCapture = require('./text-capture');
 const floatingWindow = require('./floating-window');

@@ -3,8 +3,6 @@ const assert = require('node:assert/strict');
 
 const { formatApiError, detectGarbledContent } = require('../src/main/api-error-formatter');
 
-// HTTP status code tests
-
 test('formatApiError maps HTTP 401 to auth failure', () => {
   const result = formatApiError(new Error('API error: HTTP 401'));
   assert.equal(result.message, '认证失败，请检查 API Key 或鉴权配置');
@@ -17,9 +15,18 @@ test('formatApiError maps HTTP 403 to auth failure', () => {
   assert.equal(result.action, 'settings');
 });
 
-test('formatApiError maps HTTP 404 to invalid URL', () => {
+test('formatApiError maps HTTP 404 to invalid URL without API body', () => {
   const result = formatApiError(new Error('API error: HTTP 404'));
   assert.equal(result.message, '请求地址无效，请检查 API 地址和路径');
+  assert.equal(result.action, 'settings');
+});
+
+test('formatApiError maps HTTP 404 model errors to model configuration', () => {
+  const result = formatApiError(null, {
+    statusCode: 404,
+    body: JSON.stringify({ error: { message: 'Model deepseek-chat not found' } })
+  });
+  assert.equal(result.message, '模型不存在或无权限：Model deepseek-chat not found');
   assert.equal(result.action, 'settings');
 });
 
@@ -53,15 +60,11 @@ test('formatApiError maps unknown HTTP status to generic error', () => {
   assert.equal(result.action, 'settings');
 });
 
-// Numeric status code input
-
 test('formatApiError accepts numeric status code', () => {
   const result = formatApiError(401);
   assert.equal(result.message, '认证失败，请检查 API Key 或鉴权配置');
   assert.equal(result.action, 'settings');
 });
-
-// Options with statusCode and body
 
 test('formatApiError uses options.statusCode with API error body', () => {
   const result = formatApiError(null, {
@@ -96,8 +99,6 @@ test('formatApiError HTTP 500 with valid JSON error body', () => {
   assert.equal(result.action, 'wait');
 });
 
-// Network error tests
-
 test('formatApiError maps ERR_CONNECTION_REFUSED', () => {
   const result = formatApiError(new Error('net::ERR_CONNECTION_REFUSED'));
   assert.equal(result.message, '无法连接到服务器，请检查网络和地址');
@@ -128,8 +129,6 @@ test('formatApiError maps ERR_CONNECTION_TIMED_OUT', () => {
   assert.equal(result.action, 'retry');
 });
 
-// Fallback
-
 test('formatApiError maps unknown error to generic message', () => {
   const result = formatApiError(new Error('something completely unexpected'));
   assert.equal(result.message, '请求失败，请检查网络和配置');
@@ -142,8 +141,6 @@ test('formatApiError maps string error to generic message', () => {
   assert.equal(result.action, 'settings');
 });
 
-// Garbled content detection tests
-
 test('detectGarbledContent returns false for normal text', () => {
   assert.equal(detectGarbledContent('这是一个正常的中文文本'), false);
   assert.equal(detectGarbledContent('This is normal English text'), false);
@@ -152,20 +149,23 @@ test('detectGarbledContent returns false for normal text', () => {
 });
 
 test('detectGarbledContent detects replacement characters', () => {
-  // U+FFFD is the Unicode replacement character ()
-  const replacementChar = '�';
+  const replacementChar = '\uFFFD';
   assert.equal(detectGarbledContent('正常文本' + replacementChar.repeat(3) + '异常'), true);
   assert.equal(detectGarbledContent('only two' + replacementChar.repeat(2)), false);
 });
 
+test('detectGarbledContent detects mojibake replacement characters', () => {
+  assert.equal(detectGarbledContent('正常文本锟�锟�锟�异常'), true);
+});
+
 test('detectGarbledContent detects BOM residue', () => {
-  assert.equal(detectGarbledContent('锘縘text'), true);
-  assert.equal(detectGarbledContent('锘縘'), true);
+  assert.equal(detectGarbledContent('锘�text'), true);
+  assert.equal(detectGarbledContent('ï»¿text'), true);
 });
 
 test('detectGarbledContent detects garbled pattern', () => {
-  assert.equal(detectGarbledContent('锘縘縘縘縘'), true);
-  assert.equal(detectGarbledContent('锘縘縘縘'), true);
+  assert.equal(detectGarbledContent('閿樼笜绺樼笜绺'), true);
+  assert.equal(detectGarbledContent('閿樼笜绺樼笜'), true);
 });
 
 test('detectGarbledContent detects control characters', () => {

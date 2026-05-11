@@ -66,7 +66,16 @@ test('buildChatCompletionsUrl joins a gateway request path with base URL', () =>
   );
 });
 
-test('buildChatCompletionsUrl uses gateway base URL directly without a request path', () => {
+test('buildChatCompletionsUrl uses direct endpoint defaults in gateway mode without a request path', () => {
+  assert.equal(
+    buildChatCompletionsUrl({
+      connectionMode: 'gateway',
+      apiBaseUrl: 'https://coding.dashscope.aliyuncs.com/v1',
+      apiRequestPath: ''
+    }),
+    'https://coding.dashscope.aliyuncs.com/v1/chat/completions'
+  );
+
   assert.equal(
     buildChatCompletionsUrl({
       connectionMode: 'gateway',

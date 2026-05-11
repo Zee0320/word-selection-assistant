@@ -26,7 +26,7 @@ function buildChatCompletionsUrl(settings) {
 
   if (isGatewayMode(settings)) {
     const customPath = (settings.apiRequestPath || '').trim();
-    if (!customPath) return baseUrl;
+    if (!customPath) return buildDirectChatCompletionsUrl(baseUrl);
     return `${baseUrl}/${trimLeadingSlash(customPath)}`;
   }
 

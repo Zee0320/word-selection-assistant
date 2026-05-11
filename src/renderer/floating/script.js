@@ -3,6 +3,9 @@
 let currentText = '';
 let currentSettings = {};
 let chatMessages = [];
+let chatContext = '';
+let activeChatContext = '';
+let isChatContextFrozen = false;
 let isStreaming = false;
 let isPinned = false;
 
@@ -65,6 +68,8 @@ const sentenceLoading = document.getElementById('sentence-loading');
 const translationError = document.getElementById('translation-error');
 
 const chatContextText = document.getElementById('chat-context-text');
+const chatContextClear = document.getElementById('chat-context-clear');
+const chatContextLock = document.getElementById('chat-context-lock');
 const chatMessages$ = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const chatSendBtn = document.getElementById('chat-send-btn');
@@ -128,7 +133,7 @@ window.api.onShowToolbar(({ text, settings, pinned = false, expanded = false }) 
 
   if (shouldPreservePanel === 'chat') {
     showChatPanel();
-    resetChatState();
+    updateChatContextUI();
     updatePinControls();
     return;
   }
@@ -303,6 +308,22 @@ chatInput.addEventListener('keydown', (e) => {
   }
 });
 
+chatContextText.addEventListener('input', () => {
+  if (isChatContextFrozen) return;
+  chatContext = chatContextText.value;
+  updateChatContextUI();
+});
+
+chatContextClear.addEventListener('click', (e) => {
+  window.api.notifyInteraction();
+  e.stopPropagation();
+  if (isChatContextFrozen) return;
+  chatContext = '';
+  chatContextText.value = '';
+  updateChatContextUI();
+  chatContextText.focus();
+});
+
 function sendChatMessage() {
   const content = chatInput.value.trim();
   if (!content || isStreaming) return;
@@ -313,6 +334,13 @@ function sendChatMessage() {
   }
 
   chatInput.value = '';
+  if (!isChatContextFrozen) {
+    activeChatContext = chatContextText.value.trim();
+    chatContext = activeChatContext;
+    isChatContextFrozen = true;
+    updateChatContextUI();
+  }
+
   chatMessages.push({ role: 'user', content });
   appendChatMessage('user', content);
 
@@ -322,7 +350,7 @@ function sendChatMessage() {
   isStreaming = true;
   chatSendBtn.disabled = true;
 
-  window.api.aiChatSend(currentText, chatMessages);
+  window.api.aiChatSend(activeChatContext, chatMessages);
 }
 
 window.api.onAiChatChunk((chunk) => {
@@ -448,10 +476,28 @@ function resetTranslationUI() {
 function resetChatState() {
   chatMessages = [];
   chatMessages$.innerHTML = '';
-  chatContextText.textContent = currentText;
+  chatContext = currentText;
+  activeChatContext = '';
+  isChatContextFrozen = false;
+  updateChatContextUI();
   chatInput.value = '';
   isStreaming = false;
   chatSendBtn.disabled = false;
+}
+
+function updateChatContextUI() {
+  const displayContext = isChatContextFrozen ? activeChatContext : chatContext;
+  if (chatContextText.value !== displayContext) {
+    chatContextText.value = displayContext;
+  }
+
+  const isEmpty = displayContext.trim() === '';
+  chatContextText.readOnly = isChatContextFrozen;
+  chatContextText.placeholder = isEmpty ? 'Normal chat - no selected text context' : '';
+  chatContextClear.classList.toggle('hidden', isChatContextFrozen);
+  chatContextLock.classList.toggle('hidden', !isChatContextFrozen);
+  document.getElementById('chat-context').classList.toggle('context-empty', isEmpty);
+  document.getElementById('chat-context').classList.toggle('context-frozen', isChatContextFrozen);
 }
 
 function getActivePanel() {

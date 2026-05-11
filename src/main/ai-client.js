@@ -3,6 +3,7 @@ const { net } = require('electron');
 const { getSettings } = require('./store');
 const { buildChatCompletionsUrl, buildRequestHeaders } = require('./api-request-config');
 const { formatApiError, detectGarbledContent } = require('./api-error-formatter');
+const { buildChatMessages } = require('./chat-prompt');
 
 /**
  * 语言检测：判断文本是否为中文
@@ -65,6 +66,19 @@ function isApiConfigured(settings, purpose) {
  */
 function streamCompletion(model, messages, purpose, onChunk, onDone, onError) {
   const settings = getSettings();
+  let settled = false;
+
+  function finishWithError(error) {
+    if (settled) return;
+    settled = true;
+    onError(error);
+  }
+
+  function finishDone() {
+    if (settled) return;
+    settled = true;
+    onDone();
+  }
 
   // Direct mode: baseUrl + apiKey + model required
   // Gateway mode: baseUrl + model required (apiKey and request path optional)
@@ -100,6 +114,7 @@ function streamCompletion(model, messages, purpose, onChunk, onDone, onError) {
     response.on('data', (chunk) => {
       if (response.statusCode !== 200) {
         errorBody += chunk.toString();
+        return;
       }
       buffer += chunk.toString();
       const lines = buffer.split('\n');
@@ -118,7 +133,7 @@ function streamCompletion(model, messages, purpose, onChunk, onDone, onError) {
             if (detectGarbledContent(content)) {
               consecutiveParseFailures++;
               if (consecutiveParseFailures >= MAX_PARSE_FAILURES) {
-                onError(new Error(JSON.stringify({ message: '模型输出异常，请稍后重试', action: 'retry' })));
+                finishWithError(new Error(JSON.stringify({ message: '模型输出异常，请稍后重试', action: 'retry' })));
                 return;
               }
             } else {
@@ -129,7 +144,7 @@ function streamCompletion(model, messages, purpose, onChunk, onDone, onError) {
         } catch {
           consecutiveParseFailures++;
           if (consecutiveParseFailures >= MAX_PARSE_FAILURES) {
-            onError(new Error(JSON.stringify({ message: '模型输出异常，请稍后重试', action: 'retry' })));
+            finishWithError(new Error(JSON.stringify({ message: '模型输出异常，请稍后重试', action: 'retry' })));
             return;
           }
         }
@@ -137,23 +152,23 @@ function streamCompletion(model, messages, purpose, onChunk, onDone, onError) {
     });
 
     response.on('end', () => {
-      onDone();
+      if (response.statusCode !== 200) {
+        const formatted = formatApiError(null, { statusCode: response.statusCode, body: errorBody });
+        finishWithError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
+        return;
+      }
+      finishDone();
     });
 
     response.on('error', (err) => {
       const formatted = formatApiError(err);
-      onError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
+      finishWithError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
     });
-
-    if (response.statusCode !== 200) {
-      const formatted = formatApiError(null, { statusCode: response.statusCode, body: errorBody });
-      onError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
-    }
   });
 
   request.on('error', (err) => {
     const formatted = formatApiError(err);
-    onError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
+    finishWithError(new Error(JSON.stringify({ message: formatted.message, action: formatted.action })));
   });
 
   request.write(body);
@@ -178,11 +193,7 @@ function translateSentence(text, onChunk, onDone, onError) {
  */
 function aiChat(selectedText, messages, onChunk, onDone, onError) {
   const settings = getSettings();
-  const systemMessage = {
-    role: 'system',
-    content: `You are a helpful assistant. The user has selected the following text as context:\n\n"${selectedText}"\n\nHelp the user understand or discuss this text.`
-  };
-  const fullMessages = [systemMessage, ...messages];
+  const fullMessages = buildChatMessages(selectedText, messages);
   streamCompletion(settings.chatModel, fullMessages, 'chat', onChunk, onDone, onError);
 }
 
