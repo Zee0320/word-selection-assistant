@@ -6,8 +6,17 @@ const { app, ipcMain } = require('electron');
 const textCapture = require('./text-capture');
 const floatingWindow = require('./floating-window');
 const settingsWindow = require('./settings-window');
+const standaloneChatWindow = require('./standalone-chat-window');
 const tray = require('./tray');
-const { getSettings, saveSettings } = require('./store');
+const {
+  createStandaloneConversation,
+  deleteStandaloneConversation,
+  getSettings,
+  getStandaloneChatState,
+  saveSettings,
+  saveStandaloneConversation,
+  selectStandaloneConversation
+} = require('./store');
 const { lookupWord } = require('./dictionary');
 const { classifyText, isChinese, translateSentence, aiChat } = require('./ai-client');
 
@@ -57,6 +66,14 @@ app.whenReady().then(() => {
   textCapture.init((text, x, y, activeWindowHandle) => {
     floatingWindow.showWindow(text, x, y, activeWindowHandle);
   });
+  textCapture.setShouldIgnoreWindow((windowHandle) => {
+    if (!windowHandle) return false;
+    return [
+      floatingWindow.getWindowHandle(),
+      settingsWindow.getWindowHandle(),
+      standaloneChatWindow.getWindowHandle()
+    ].some(handle => handle && handle === windowHandle);
+  });
 
   // 全局鼠标按下事件，用于点击外部隐藏悬浮窗
   // 不做坐标判断（uiohook 和 Electron 的坐标系在高 DPI 下不一致）
@@ -81,6 +98,7 @@ app.on('window-all-closed', (e) => {
 app.on('before-quit', () => {
   textCapture.destroy();
   tray.destroy();
+  standaloneChatWindow.destroy();
 });
 
 // ─── IPC 处理器 ───────────────────────────────────────────
@@ -93,6 +111,8 @@ ipcMain.handle('save-settings', (event, settings) => {
   // 通知悬浮窗设置已更新
   const wc = floatingWindow.getWebContents();
   if (wc) wc.send('settings-updated', updated);
+  const chatWc = standaloneChatWindow.getWebContents();
+  if (chatWc) chatWc.send('settings-updated', updated);
   return updated;
 });
 
@@ -160,6 +180,54 @@ ipcMain.on('ai-chat-send', (event, { selectedText, messages }) => {
   );
 });
 
+ipcMain.handle('standalone-chat-state', () => getStandaloneChatState());
+
+ipcMain.handle('standalone-chat-new-conversation', (event, initialMessage = '') => {
+  return createStandaloneConversation(initialMessage);
+});
+
+ipcMain.handle('standalone-chat-save-conversation', (event, conversation) => {
+  return saveStandaloneConversation(conversation);
+});
+
+ipcMain.handle('standalone-chat-select-conversation', (event, conversationId) => {
+  return selectStandaloneConversation(conversationId);
+});
+
+ipcMain.handle('standalone-chat-delete-conversation', (event, conversationId) => {
+  return deleteStandaloneConversation(conversationId);
+});
+
+ipcMain.on('standalone-chat-send', (event, { conversationId, messages }) => {
+  const settings = getSettings();
+  const isGateway = settings.connectionMode === 'gateway';
+  if (!settings.apiBaseUrl || !settings.chatModel || (!isGateway && !settings.apiKey)) {
+    event.sender.send('standalone-chat-stream-error', {
+      conversationId,
+      error: { message: '请先在设置中配置 AI 对话所需的 API 信息。', action: 'settings' }
+    });
+    return;
+  }
+
+  aiChat(
+    '',
+    messages,
+    (chunk) => event.sender.send('standalone-chat-stream-chunk', { conversationId, chunk }),
+    () => event.sender.send('standalone-chat-stream-done', { conversationId }),
+    (err) => {
+      try {
+        const parsed = JSON.parse(err.message);
+        event.sender.send('standalone-chat-stream-error', { conversationId, error: parsed });
+      } catch {
+        event.sender.send('standalone-chat-stream-error', {
+          conversationId,
+          error: { message: err.message, action: 'settings' }
+        });
+      }
+    }
+  );
+});
+
 // 调整悬浮窗大小
 ipcMain.on('resize-window', (event, { width, height }) => {
   floatingWindow.resizeWindow(width, height);
@@ -183,6 +251,10 @@ ipcMain.on('move-window', (event, { deltaX, deltaY }) => {
 // 打开设置
 ipcMain.on('open-settings', () => {
   settingsWindow.openSettings();
+});
+
+ipcMain.on('open-standalone-chat', () => {
+  standaloneChatWindow.openChatWindow();
 });
 
 // 用户与悬浮窗交互（点击按钮等），重置保护期

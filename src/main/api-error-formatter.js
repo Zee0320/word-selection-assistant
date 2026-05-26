@@ -1,6 +1,11 @@
 function isModelNotFoundMessage(message) {
   if (!message || typeof message !== 'string') return false;
-  return /model|模型/i.test(message) && /not found|does not exist|不存在|无权限|permission|access/i.test(message);
+  return /model|模型/i.test(message) &&
+    /not found|does not exist|不存在|无权限|permission|access|unauthorized/i.test(message);
+}
+
+function withApiMessage(prefix, apiMessage) {
+  return apiMessage ? `${prefix}：${apiMessage}` : prefix;
 }
 
 function formatHttpError(statusCode, apiMessage, bodyContent) {
@@ -8,15 +13,18 @@ function formatHttpError(statusCode, apiMessage, bodyContent) {
     case 401:
     case 403:
       return {
-        message: apiMessage ? `认证失败：${apiMessage}` : '认证失败，请检查 API Key 或鉴权配置',
+        message: withApiMessage('认证失败，请检查 API Key 或网关鉴权 Header', apiMessage),
         action: 'settings'
       };
     case 404:
       if (isModelNotFoundMessage(apiMessage)) {
-        return { message: `模型不存在或无权限：${apiMessage}`, action: 'settings' };
+        return {
+          message: withApiMessage('模型不存在或无权限，请检查模型名称和账号权限', apiMessage),
+          action: 'settings'
+        };
       }
       return {
-        message: apiMessage ? `请求地址无效：${apiMessage}` : '请求地址无效，请检查 API 地址和路径',
+        message: withApiMessage('请求地址无效，请检查 API 地址和请求路径', apiMessage),
         action: 'settings'
       };
     case 429:
@@ -25,15 +33,17 @@ function formatHttpError(statusCode, apiMessage, bodyContent) {
     case 502:
     case 503:
       if (bodyContent && !apiMessage) {
-        return { message: '服务器返回格式异常，请稍后重试', action: 'wait' };
+        return { message: '服务器返回内容异常，请稍后重试', action: 'wait' };
       }
       return {
-        message: apiMessage ? `服务器异常：${apiMessage}` : '服务器异常，请稍后重试',
+        message: withApiMessage('服务器异常，请稍后重试', apiMessage),
         action: 'wait'
       };
     default:
       return {
-        message: apiMessage ? `请求失败：${apiMessage}` : `请求失败 (HTTP ${statusCode})，请检查网络和配置`,
+        message: apiMessage
+          ? `请求失败：${apiMessage}`
+          : `请求失败（HTTP ${statusCode}），请检查网络和配置`,
         action: 'settings'
       };
   }
@@ -43,13 +53,13 @@ function formatNetworkError(errorString) {
   const lower = errorString.toLowerCase();
 
   if (lower.includes('connection_refused') || lower.includes('connection refused')) {
-    return { message: '无法连接到服务器，请检查网络和地址', action: 'settings' };
+    return { message: '无法连接到服务器，请检查网络、内网地址或模型服务是否已启动', action: 'settings' };
   }
   if (lower.includes('enotfound') || lower.includes('name_not_resolved')) {
-    return { message: '网络地址无法解析，请检查 API 地址', action: 'settings' };
+    return { message: '网络地址无法解析，请检查 API 地址是否正确', action: 'settings' };
   }
   if (lower.includes('etimedout') || lower.includes('connection_timed_out') || lower.includes('timed out')) {
-    return { message: '连接超时，请检查网络', action: 'retry' };
+    return { message: '连接超时，请检查网络或稍后重试', action: 'retry' };
   }
 
   return null;
@@ -59,20 +69,13 @@ function parseApiErrorMessage(body) {
   if (!body || typeof body !== 'string') return null;
   try {
     const json = JSON.parse(body);
-    return json.error?.message || json.message || null;
+    const message = json.error?.message || json.message;
+    return typeof message === 'string' && message.trim() ? message.trim() : null;
   } catch {
     return null;
   }
 }
 
-/**
- * Format a raw API error into a user-friendly message with action hint.
- * @param {Error|string|number} rawError - The raw error (Error object, error string, or HTTP status code)
- * @param {object} [options] - Optional context
- * @param {number} [options.statusCode] - HTTP status code if available
- * @param {string} [options.body] - Response body if available
- * @returns {{ message: string, action: 'settings'|'retry'|'wait' }}
- */
 function formatApiError(rawError, options = {}) {
   if (options.statusCode) {
     const apiMessage = parseApiErrorMessage(options.body);
@@ -97,19 +100,13 @@ function formatApiError(rawError, options = {}) {
   return { message: '请求失败，请检查网络和配置', action: 'settings' };
 }
 
-/**
- * Detect garbled/malformed content in output text.
- * Returns true if the content appears to have encoding issues.
- * @param {string} content - The content to check
- * @returns {boolean}
- */
 function detectGarbledContent(content) {
   if (!content || typeof content !== 'string') return false;
 
   const replacementCount = (content.match(/\uFFFD/g) || []).length;
-  const mojibakeReplacementCount = (content.match(/锟�/g) || []).length;
-  const bomResidueCount = (content.match(/ï»¿|锘�|閿樼笜/g) || []).length;
-  const garbledPatternCount = (content.match(/[閿樼笜绺]{3,}/g) || []).length;
+  const mojibakeReplacementCount = (content.match(/閿燂拷/g) || []).length;
+  const bomResidueCount = (content.match(/茂禄驴|閿橈拷|闁挎绗?/g) || []).length;
+  const garbledPatternCount = (content.match(/[闁挎绗滅缓]{3,}/g) || []).length;
   const controlCharCount = (content.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g) || []).length;
 
   return (

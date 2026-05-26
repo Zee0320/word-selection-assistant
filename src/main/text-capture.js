@@ -1,34 +1,29 @@
-// src/main/text-capture.js - 全局文本捕获
-const { clipboard, screen } = require('electron');
+// src/main/text-capture.js - global text selection capture
+const { clipboard } = require('electron');
 const { uIOhook, UiohookKey } = require('@mukea/uiohook-napi');
 const windowFocus = require('./window-focus');
 
 let isEnabled = true;
-let onTextCaptured = null; // 回调: (text, x, y) => void
+let onTextCaptured = null;
 let onMouseDownCallback = null;
-let floatingWindowIds = new Set(); // 自身窗口 ID 集合
+let shouldIgnoreWindow = null;
 
-// 鼠标按下位置
 let mouseDownX = 0;
 let mouseDownY = 0;
-
-// 用于检测双击/三击
 let lastMouseUpTime = 0;
 let clickCount = 0;
 
-const DRAG_THRESHOLD = 5; // px，拖拽检测阈值
+const DRAG_THRESHOLD = 5;
+const CLIPBOARD_WAIT_MS = 150;
 
-/**
- * 设置鼠标按下回调，用于检测点击外部
- */
 function setOnMouseDown(cb) {
   onMouseDownCallback = cb;
 }
 
-/**
- * 初始化文本捕获
- * @param {Function} callback - (text, x, y) => void
- */
+function setShouldIgnoreWindow(cb) {
+  shouldIgnoreWindow = cb;
+}
+
 function init(callback) {
   onTextCaptured = callback;
 
@@ -43,7 +38,6 @@ function init(callback) {
   uIOhook.on('mouseup', async (e) => {
     if (!isEnabled) return;
 
-    // 更新点击计数
     const now = Date.now();
     if (now - lastMouseUpTime < 500) {
       clickCount++;
@@ -52,52 +46,31 @@ function init(callback) {
     }
     lastMouseUpTime = now;
 
-    // 检测是否有拖拽（选择文本）
     const dx = Math.abs(e.x - mouseDownX);
     const dy = Math.abs(e.y - mouseDownY);
-    
     const isDrag = dx >= DRAG_THRESHOLD || dy >= DRAG_THRESHOLD;
-    const isMultiClick = clickCount >= 2; // 双击或三击
+    const isMultiClick = clickCount >= 2;
 
     if (!isDrag && !isMultiClick) return;
 
     const activeWindowHandlePromise = windowFocus.getForegroundWindow();
 
-    // 延迟让选择状态稳定 (特别是 VSCode 等 Electron 应用，双击选中文字有一定延迟)
+    // Let selection settle before copying, especially for double-click selection.
     await sleep(isMultiClick ? 150 : 80);
+    const activeWindowHandle = await activeWindowHandlePromise;
 
-    // 备份剪贴板
-    const prevClipboard = clipboard.readText();
-    console.log('[TextCapture] Backup clipboard:', prevClipboard ? `"${prevClipboard.substring(0, 50)}"` : '(empty)');
-
-    // 清空剪贴板，以便能检测到重复划词的情况
-    clipboard.writeText('');
-
-    // 模拟 Ctrl+C
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'down');
-    uIOhook.keyTap(UiohookKey.C);
-    uIOhook.keyToggle(UiohookKey.Ctrl, 'up');
-
-    // 快速轮询等待剪贴板更新（等待其不再为空）
-    const selectedText = (await waitForClipboardChange('', 150)).trim();
-    console.log('[TextCapture] Selected text:', selectedText ? `"${selectedText}"` : '(empty)');
-
-    // 还原剪贴板（始终还原，让用户感知不到剪贴板被使用）
-    clipboard.writeText(prevClipboard);
-
-    // 验证还原是否成功
-    const afterRestore = clipboard.readText();
-    console.log('[TextCapture] After restore check:', afterRestore === prevClipboard ? 'SUCCESS' : 'FAILED');
-    console.log('[TextCapture] Current clipboard content:', afterRestore ? `"${afterRestore.substring(0, 50)}"` : '(empty)');
-
-    if (!selectedText) {
+    if (shouldIgnoreWindow && shouldIgnoreWindow(activeWindowHandle)) {
+      console.log('[TextCapture] Ignored own application window');
       return;
     }
 
-    // 调用回调
+    const selectedText = await captureSelectedTextFromClipboard();
+    console.log('[TextCapture] Selected text:', selectedText ? `"${selectedText}"` : '(empty)');
+
+    if (!selectedText) return;
+
     if (onTextCaptured) {
       console.log(`[TextCapture] Captured text: "${selectedText}"`);
-      const activeWindowHandle = await activeWindowHandlePromise;
       onTextCaptured(selectedText, e.x, e.y, activeWindowHandle);
     }
   });
@@ -129,16 +102,126 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function waitForClipboardChange(prevText, timeout) {
+function hasNonEmptyImage(image) {
+  if (!image) return false;
+  if (typeof image.isEmpty === 'function') {
+    return !image.isEmpty();
+  }
+  return true;
+}
+
+function safeCall(fn, fallback, label, logger = console) {
+  try {
+    return fn();
+  } catch (err) {
+    logger.warn?.(`[TextCapture] ${label} failed:`, err.message || err);
+    return fallback;
+  }
+}
+
+function createClipboardSnapshot(clipboardApi = clipboard, logger = console) {
+  const formats = safeCall(
+    () => clipboardApi.availableFormats?.() || [],
+    [],
+    'Read clipboard formats',
+    logger
+  );
+  const text = safeCall(
+    () => clipboardApi.readText?.() || '',
+    '',
+    'Read clipboard text',
+    logger
+  );
+  const image = safeCall(
+    () => clipboardApi.readImage?.() || null,
+    null,
+    'Read clipboard image',
+    logger
+  );
+
+  return {
+    formats,
+    text,
+    image: hasNonEmptyImage(image) ? image : null
+  };
+}
+
+function restoreClipboardSnapshot(snapshot, clipboardApi = clipboard, logger = console) {
+  if (!snapshot) return false;
+
+  return safeCall(
+    () => {
+      if (hasNonEmptyImage(snapshot.image)) {
+        const data = { image: snapshot.image };
+        if (snapshot.text) data.text = snapshot.text;
+        if (typeof clipboardApi.write === 'function') {
+          clipboardApi.write(data);
+        } else {
+          clipboardApi.writeImage?.(snapshot.image);
+        }
+      } else {
+        clipboardApi.writeText?.(snapshot.text || '');
+      }
+      return true;
+    },
+    false,
+    'Restore clipboard',
+    logger
+  );
+}
+
+function copySelectionToClipboard() {
+  uIOhook.keyToggle(UiohookKey.Ctrl, 'down');
+  uIOhook.keyTap(UiohookKey.C);
+  uIOhook.keyToggle(UiohookKey.Ctrl, 'up');
+}
+
+async function captureSelectedTextFromClipboard({
+  clipboardApi = clipboard,
+  copySelection = copySelectionToClipboard,
+  logger = console,
+  waitTimeout = CLIPBOARD_WAIT_MS
+} = {}) {
+  const snapshot = createClipboardSnapshot(clipboardApi, logger);
+  logger.log?.('[TextCapture] Backup clipboard:', snapshot.text ? `"${snapshot.text.substring(0, 50)}"` : '(empty)');
+
+  let selectedText = '';
+  try {
+    clipboardApi?.writeText?.('');
+    copySelection();
+    selectedText = (await waitForClipboardChange('', waitTimeout, clipboardApi)).trim();
+  } catch (err) {
+    logger.warn?.('[TextCapture] Capture selected text failed:', err.message || err);
+    selectedText = '';
+  } finally {
+    const restored = restoreClipboardSnapshot(snapshot, clipboardApi, logger);
+    logger.log?.('[TextCapture] Clipboard restore:', restored ? 'SUCCESS' : 'FAILED');
+  }
+
+  return selectedText;
+}
+
+async function waitForClipboardChange(prevText, timeout, clipboardApi = clipboard) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    const newText = clipboard.readText();
+    const newText = clipboardApi.readText();
     if (newText !== prevText) {
       return newText;
     }
     await sleep(10);
   }
-  return clipboard.readText();
+  return clipboardApi.readText();
 }
 
-module.exports = { init, pause, resume, isPaused, destroy, setOnMouseDown };
+module.exports = {
+  captureSelectedTextFromClipboard,
+  createClipboardSnapshot,
+  destroy,
+  init,
+  isPaused,
+  pause,
+  resume,
+  restoreClipboardSnapshot,
+  setOnMouseDown,
+  setShouldIgnoreWindow
+};

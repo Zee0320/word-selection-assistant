@@ -5,6 +5,8 @@ const translateModel = document.getElementById('translate-model');
 const chatModel = document.getElementById('chat-model');
 const translationEnabled = document.getElementById('translation-enabled');
 const aiChatEnabled = document.getElementById('ai-chat-enabled');
+const standaloneChatSaveHistory = document.getElementById('standalone-chat-save-history');
+const standaloneChatRestoreLast = document.getElementById('standalone-chat-restore-last');
 const phraseThreshold = document.getElementById('phrase-threshold');
 const thresholdValue = document.getElementById('threshold-value');
 const saveIndicator = document.getElementById('save-indicator');
@@ -64,6 +66,8 @@ async function loadSettings() {
   chatModel.value = settings.chatModel || '';
   translationEnabled.checked = settings.translationEnabled;
   aiChatEnabled.checked = settings.aiChatEnabled;
+  standaloneChatSaveHistory.checked = settings.standaloneChatSaveHistory !== false;
+  standaloneChatRestoreLast.checked = settings.standaloneChatRestoreLastConversation !== false;
   phraseThreshold.value = settings.phraseThreshold;
   thresholdValue.textContent = settings.phraseThreshold;
   lastSavedHeaders = settings.customHeaders || {};
@@ -122,6 +126,8 @@ function buildCurrentSettings() {
       chatModel: chatModel.value.trim(),
       translationEnabled: translationEnabled.checked,
       aiChatEnabled: aiChatEnabled.checked,
+      standaloneChatSaveHistory: standaloneChatSaveHistory.checked,
+      standaloneChatRestoreLastConversation: standaloneChatRestoreLast.checked,
       phraseThreshold: parseInt(phraseThreshold.value, 10)
     }
   };
@@ -151,7 +157,7 @@ function showSaveIndicator() {
   el.addEventListener('input', scheduleAutoSave);
 });
 
-[translationEnabled, aiChatEnabled].forEach(el => {
+[translationEnabled, aiChatEnabled, standaloneChatSaveHistory, standaloneChatRestoreLast].forEach(el => {
   el.addEventListener('change', doSave);
 });
 
@@ -235,13 +241,13 @@ togglePw.addEventListener('click', () => {
 
 async function testModelConnection(btn, modelValue, label, purpose) {
   if (!modelValue) {
-    showApiStatus('error', `Missing ${label} model.`);
+    showApiStatus('error', `请先填写${label === 'chat' ? '对话' : '翻译'}模型。`);
     return;
   }
 
   const result = buildCurrentSettings();
   if (!result.ok) {
-    showApiStatus('error', 'Fix gateway headers before testing.');
+    showApiStatus('error', '请先修正 Gateway Headers 后再测试。');
     return;
   }
 
@@ -253,7 +259,7 @@ async function testModelConnection(btn, modelValue, label, purpose) {
 
   btn.disabled = true;
   const originalText = btn.textContent;
-  btn.textContent = 'Testing...';
+  btn.textContent = '测试中...';
   hideApiStatus();
 
   const currentSettings = await window.api.saveSettings(result.settings);
@@ -274,11 +280,11 @@ async function testModelConnection(btn, modelValue, label, purpose) {
 
   const testResult = await window.api.testConnection(testConfig, purpose);
   if (testResult.success) {
-    const modeLabel = currentSettings.connectionMode === 'gateway' ? 'gateway' : 'direct';
+    const modeLabel = currentSettings.connectionMode === 'gateway' ? 'Gateway' : 'Direct API';
     const headerInfo = currentSettings.connectionMode === 'gateway'
-      ? ` (shared + ${label} headers)`
+      ? `（已使用${label === 'chat' ? '对话' : '翻译'}专用 Headers）`
       : '';
-    showApiStatus('ok', `${label} model "${modelValue}" connected in ${modeLabel} mode${headerInfo}.`);
+    showApiStatus('ok', `${label === 'chat' ? '对话' : '翻译'}模型“${modelValue}”连接成功（${modeLabel}）${headerInfo}。`);
   } else {
     showApiStatus('error', testResult.error);
   }
@@ -301,10 +307,10 @@ function getValidationError(settings) {
   const isGateway = settings.connectionMode === 'gateway';
 
   if (!needsTranslation && !needsChat) return '';
-  if (!settings.apiBaseUrl) return isGateway ? 'Gateway URL is required.' : 'API URL is required for enabled AI features.';
-  if (!isGateway && !settings.apiKey) return 'API key is required for Direct API mode.';
-  if (needsTranslation && !settings.translateModel) return 'Translation is enabled, but no translation model is configured.';
-  if (needsChat && !settings.chatModel) return 'AI chat is enabled, but no chat model is configured.';
+  if (!settings.apiBaseUrl) return isGateway ? '请先配置 Gateway 地址。' : '启用 AI 功能需要先配置 API 地址。';
+  if (!isGateway && !settings.apiKey) return 'Direct API 模式需要配置 API Key。';
+  if (needsTranslation && !settings.translateModel) return '已启用划词翻译，但还没有配置翻译模型。';
+  if (needsChat && !settings.chatModel) return '已启用 AI 对话，但还没有配置对话模型。';
   return '';
 }
 
@@ -315,8 +321,8 @@ function validateApiConfig(settings) {
     showApiStatus('error', error);
   } else if (settings.apiBaseUrl && (settings.apiKey || isGateway)) {
     const modeLabel = isGateway ? 'Gateway' : 'Direct API';
-    const authInfo = isGateway && !settings.apiKey ? ' (auth via headers)' : '';
-    showApiStatus('ok', `${modeLabel} configuration is ready${authInfo}.`);
+    const authInfo = isGateway && !settings.apiKey ? '（通过 Headers 鉴权）' : '';
+    showApiStatus('ok', `${modeLabel} 配置已就绪${authInfo}。`);
   } else {
     hideApiStatus();
   }
@@ -389,7 +395,7 @@ function collectHeadersFromRows(listEl) {
 
     if (!name && !value) continue;
     if (!name) {
-      return { ok: false, error: 'Header name cannot be empty.' };
+      return { ok: false, error: 'Header 名称不能为空。' };
     }
     headers[name] = value;
   }
@@ -407,18 +413,18 @@ function parseHeadersJson(value) {
   try {
     parsed = JSON.parse(value);
   } catch {
-    return { ok: false, error: 'Headers JSON is not valid JSON.' };
+    return { ok: false, error: 'Headers JSON 格式不正确。' };
   }
 
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-    return { ok: false, error: 'Headers JSON must be an object.' };
+    return { ok: false, error: 'Headers JSON 必须是对象格式。' };
   }
 
   const headers = {};
   for (const [name, headerValue] of Object.entries(parsed)) {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      return { ok: false, error: 'Header name cannot be empty.' };
+      return { ok: false, error: 'Header 名称不能为空。' };
     }
     headers[trimmedName] = String(headerValue);
   }

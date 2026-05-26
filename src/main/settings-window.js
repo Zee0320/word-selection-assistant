@@ -1,11 +1,14 @@
 // src/main/settings-window.js - 设置窗口管理
 const { BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const { nativeWindowHandleToNumber } = require('./window-focus');
 
 let settingsWin = null;
 
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) {
+    if (settingsWin.isMinimized()) settingsWin.restore();
+    if (!settingsWin.isVisible()) settingsWin.show();
     settingsWin.focus();
     return;
   }
@@ -38,4 +41,11 @@ function destroy() {
   }
 }
 
-module.exports = { openSettings, destroy };
+function getWindowHandle() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    return nativeWindowHandleToNumber(settingsWin.getNativeWindowHandle());
+  }
+  return null;
+}
+
+module.exports = { openSettings, destroy, getWindowHandle };

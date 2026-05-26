@@ -208,15 +208,15 @@ async function testConnection(settings, purpose) {
 
     // Validate required fields based on mode
     if (!settings.apiBaseUrl) {
-      resolve({ success: false, error: isGateway ? 'Gateway URL is required.' : 'API URL is required.' });
+      resolve({ success: false, error: isGateway ? '请先配置 Gateway 地址。' : '请先配置 API 地址。' });
       return;
     }
     if (!isGateway && !settings.apiKey) {
-      resolve({ success: false, error: 'API key is required for Direct API mode.' });
+      resolve({ success: false, error: 'Direct API 模式需要配置 API Key。' });
       return;
     }
     if (!settings.modelName) {
-      resolve({ success: false, error: 'Model name is required.' });
+      resolve({ success: false, error: '请先填写模型名称。' });
       return;
     }
 

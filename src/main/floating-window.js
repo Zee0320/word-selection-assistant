@@ -234,6 +234,13 @@ function getWebContents() {
   return null;
 }
 
+function getWindowHandle() {
+  if (floatingWin && !floatingWin.isDestroyed()) {
+    return windowFocus.nativeWindowHandleToNumber(floatingWin.getNativeWindowHandle());
+  }
+  return null;
+}
+
 function destroy() {
   isPinned = false;
   isExpanded = false;
@@ -243,4 +250,4 @@ function destroy() {
   }
 }
 
-module.exports = { showWindow, hideWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, destroy, getOrCreateWindow };
+module.exports = { showWindow, hideWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, getWindowHandle, destroy, getOrCreateWindow };

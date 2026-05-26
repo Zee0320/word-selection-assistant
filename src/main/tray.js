@@ -1,8 +1,9 @@
-// src/main/tray.js - 系统托盘管理
+// src/main/tray.js - system tray management
 const { Tray, Menu, nativeImage, app } = require('electron');
 const path = require('path');
 const textCapture = require('./text-capture');
 const settingsWindow = require('./settings-window');
+const standaloneChatWindow = require('./standalone-chat-window');
 
 let tray = null;
 
@@ -10,25 +11,28 @@ function buildContextMenu() {
   const paused = textCapture.isPaused();
   return Menu.buildFromTemplate([
     {
-      label: paused ? '▶ 恢复' : '⏸ 暂停',
+      label: paused ? 'Resume capture' : 'Pause capture',
       click: () => {
         if (paused) {
           textCapture.resume();
         } else {
           textCapture.pause();
         }
-        // 重新构建菜单以更新标签
         tray.setContextMenu(buildContextMenu());
       }
     },
     { type: 'separator' },
     {
-      label: '⚙ 设置',
+      label: 'AI Chat',
+      click: () => standaloneChatWindow.openChatWindow()
+    },
+    {
+      label: 'Settings',
       click: () => settingsWindow.openSettings()
     },
     { type: 'separator' },
     {
-      label: '✕ 退出',
+      label: 'Quit',
       click: () => app.quit()
     }
   ]);
@@ -39,12 +43,11 @@ function init() {
   const icon = nativeImage.createFromPath(iconPath);
 
   tray = new Tray(icon);
-  tray.setToolTip('划词助手');
+  tray.setToolTip('Word Selection Assistant');
   tray.setContextMenu(buildContextMenu());
 
-  // 双击打开设置
   tray.on('double-click', () => {
-    settingsWindow.openSettings();
+    standaloneChatWindow.openChatWindow();
   });
 
   console.log('[Tray] System tray initialized');

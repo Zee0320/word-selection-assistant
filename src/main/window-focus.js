@@ -4,6 +4,22 @@ const { execFile } = require('child_process');
 const isWindows = process.platform === 'win32';
 const POWERSHELL = 'powershell.exe';
 
+function nativeWindowHandleToNumber(handleBuffer) {
+  if (!handleBuffer || !Buffer.isBuffer(handleBuffer) || handleBuffer.length === 0) {
+    return null;
+  }
+
+  try {
+    const value = handleBuffer.length >= 8
+      ? handleBuffer.readBigUInt64LE(0)
+      : BigInt(handleBuffer.readUInt32LE(0));
+    const numberValue = Number(value);
+    return Number.isSafeInteger(numberValue) && numberValue > 0 ? numberValue : null;
+  } catch {
+    return null;
+  }
+}
+
 function runPowerShell(command) {
   if (!isWindows) return Promise.resolve('');
 
@@ -69,13 +85,17 @@ public static class WinFocus {
   [DllImport("user32.dll")]
   public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")]
   public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 }
 "@
 $hwnd = [IntPtr]${Math.trunc(hwnd)}
-[WinFocus]::ShowWindowAsync($hwnd, 9) | Out-Null
+if ([WinFocus]::IsIconic($hwnd)) {
+  [WinFocus]::ShowWindowAsync($hwnd, 9) | Out-Null
+}
 [WinFocus]::SetForegroundWindow($hwnd) | Out-Null
 `);
 }
 
-module.exports = { getForegroundWindow, restoreForegroundWindow };
+module.exports = { getForegroundWindow, nativeWindowHandleToNumber, restoreForegroundWindow };

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 对话 - 划词助手</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div>
+          <h1>AI 对话</h1>
+          <p id="history-state">本地历史</p>
+        </div>
+        <button id="new-chat" class="icon-button primary" type="button" title="新建会话" aria-label="新建会话">+</button>
+      </div>
+      <div id="conversation-list" class="conversation-list"></div>
+    </aside>
+
+    <main class="chat-pane">
+      <header class="chat-header">
+        <div>
+          <h2 id="conversation-title">新会话</h2>
+          <p id="conversation-meta">就绪</p>
+        </div>
+        <div class="header-actions">
+          <button id="delete-chat" class="text-button danger" type="button">删除</button>
+        </div>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+
+      <footer class="composer-wrap">
+        <div id="error-banner" class="error-banner hidden"></div>
+        <form id="composer" class="composer">
+          <textarea id="chat-input" rows="1" placeholder="输入问题..." autocomplete="off"></textarea>
+          <button id="send-chat" class="send-button" type="submit">发送</button>
+        </form>
+      </footer>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
