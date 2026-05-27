@@ -2,6 +2,10 @@
 const { clipboard } = require('electron');
 const { uIOhook, UiohookKey } = require('@mukea/uiohook-napi');
 const windowFocus = require('./window-focus');
+const { readSelectedTextViaUIAutomation } = require('./selected-text-reader');
+const { readSelectedTextWithFallback } = require('./selected-text-capture-strategy');
+
+const { isTerminalLikeWindow } = windowFocus._private;
 
 let isEnabled = true;
 let onTextCaptured = null;
@@ -53,18 +57,38 @@ function init(callback) {
 
     if (!isDrag && !isMultiClick) return;
 
-    const activeWindowHandlePromise = windowFocus.getForegroundWindow();
+    const activeWindowInfoPromise = windowFocus.getForegroundWindowInfo();
 
-    // Let selection settle before copying, especially for double-click selection.
+    // Let selection settle before reading, especially for double-click selection.
     await sleep(isMultiClick ? 150 : 80);
-    const activeWindowHandle = await activeWindowHandlePromise;
+    const activeWindowInfo = await activeWindowInfoPromise;
+    const activeWindowHandle = activeWindowInfo.hwnd;
 
     if (shouldIgnoreWindow && shouldIgnoreWindow(activeWindowHandle)) {
       console.log('[TextCapture] Ignored own application window');
       return;
     }
 
-    const selectedText = await captureSelectedTextFromClipboard();
+    const allowClipboardFallback = !isTerminalLikeWindow(activeWindowInfo);
+    const selectedText = await readSelectedTextWithFallback({
+      readViaUIAutomation: async () => {
+        const text = await readSelectedTextViaUIAutomation();
+        if (text) {
+          console.log('[TextCapture] Selected text via UIA:', `"${text}"`);
+        }
+        return text;
+      },
+      readViaClipboardFallback: captureSelectedTextFromClipboard,
+      allowClipboardFallback
+    });
+
+    if (!selectedText && !allowClipboardFallback) {
+      console.log('[TextCapture] Skipping clipboard fallback for terminal-like window:', {
+        processName: activeWindowInfo.processName,
+        className: activeWindowInfo.className,
+        title: activeWindowInfo.title
+      });
+    }
     console.log('[TextCapture] Selected text:', selectedText ? `"${selectedText}"` : '(empty)');
 
     if (!selectedText) return;

@@ -74,10 +74,83 @@ public static class WinFocus {
   return Number.isFinite(hwnd) && hwnd > 0 ? hwnd : null;
 }
 
-function restoreForegroundWindow(hwnd) {
-  if (!hwnd || !isWindows) return;
+function buildForegroundWindowInfoScript() {
+  return `
+Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class WinInfo {
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", SetLastError = true)]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+}
+"@
+$hwnd = [WinInfo]::GetForegroundWindow()
+if ($hwnd -eq [IntPtr]::Zero) { return }
+$processId = 0
+[WinInfo]::GetWindowThreadProcessId($hwnd, [ref]$processId) | Out-Null
+$classBuilder = New-Object System.Text.StringBuilder 256
+[WinInfo]::GetClassName($hwnd, $classBuilder, $classBuilder.Capacity) | Out-Null
+$titleBuilder = New-Object System.Text.StringBuilder 512
+[WinInfo]::GetWindowText($hwnd, $titleBuilder, $titleBuilder.Capacity) | Out-Null
+$processName = ''
+if ($processId -gt 0) {
+  try {
+    $processName = (Get-Process -Id $processId -ErrorAction Stop).ProcessName
+  } catch {
+    $processName = ''
+  }
+}
+$tab = [char]9
+[Console]::Write(($hwnd.ToInt64().ToString() + $tab + $processName + $tab + $classBuilder.ToString() + $tab + $titleBuilder.ToString()))
+`;
+}
 
-  runPowerShell(`
+async function getForegroundWindowInfo() {
+  const output = await runPowerShell(buildForegroundWindowInfoScript());
+  const [hwndText = '', processName = '', className = '', title = ''] = output.split('\t');
+  const hwnd = Number(hwndText);
+  if (!Number.isFinite(hwnd) || hwnd <= 0) {
+    return { hwnd: null, processName: '', className: '', title: '' };
+  }
+  return { hwnd, processName, className, title };
+}
+
+function normalizeWindowToken(value) {
+  return String(value || '').trim().toLowerCase().replace(/\.exe$/, '');
+}
+
+function isTerminalLikeWindow(info = {}) {
+  const processName = normalizeWindowToken(info.processName);
+  const className = normalizeWindowToken(info.className);
+
+  const terminalProcesses = new Set([
+    'windowsterminal',
+    'openconsole',
+    'conhost',
+    'cmd',
+    'powershell',
+    'pwsh',
+    'mintty',
+    'wezterm-gui',
+    'alacritty'
+  ]);
+  const terminalClasses = new Set([
+    'cascadia_hosting_window_class',
+    'consolewindowclass'
+  ]);
+
+  return terminalProcesses.has(processName) || terminalClasses.has(className);
+}
+
+function buildRestoreForegroundWindowScript(hwnd) {
+  return `
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -85,9 +158,9 @@ public static class WinFocus {
   [DllImport("user32.dll")]
   public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")]
-  public static extern bool IsIconic(IntPtr hWnd);
-  [DllImport("user32.dll")]
   public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
 }
 "@
 $hwnd = [IntPtr]${Math.trunc(hwnd)}
@@ -95,7 +168,23 @@ if ([WinFocus]::IsIconic($hwnd)) {
   [WinFocus]::ShowWindowAsync($hwnd, 9) | Out-Null
 }
 [WinFocus]::SetForegroundWindow($hwnd) | Out-Null
-`);
+`;
 }
 
-module.exports = { getForegroundWindow, nativeWindowHandleToNumber, restoreForegroundWindow };
+function restoreForegroundWindow(hwnd) {
+  if (!hwnd || !isWindows) return;
+
+  runPowerShell(buildRestoreForegroundWindowScript(hwnd));
+}
+
+module.exports = {
+  getForegroundWindow,
+  getForegroundWindowInfo,
+  nativeWindowHandleToNumber,
+  restoreForegroundWindow,
+  _private: {
+    buildForegroundWindowInfoScript,
+    buildRestoreForegroundWindowScript,
+    isTerminalLikeWindow
+  }
+};
