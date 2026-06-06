@@ -92,6 +92,22 @@ html, body {
   color: #fff;
 }
 
+.toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: wait;
+  transform: none;
+}
+
+.toolbar-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+#toolbar.toolbar-pending .drag-handle {
+  color: var(--accent2);
+  opacity: 0.85;
+}
+
 .toolbar-btn:active {
   transform: scale(0.96);
 }

@@ -8,6 +8,7 @@ let activeChatContext = '';
 let isChatContextFrozen = false;
 let isStreaming = false;
 let isPinned = false;
+let isTextPending = false;
 
 /**
  * Check if API is properly configured for the given purpose
@@ -74,6 +75,10 @@ const chatMessages$ = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const chatSendBtn = document.getElementById('chat-send-btn');
 
+const LABEL_TRANSLATE = '\u7ffb\u8bd1';
+const LABEL_CHAT = 'AI \u5bf9\u8bdd';
+const LABEL_PENDING = '\u6b63\u5728\u8bfb\u53d6\u9009\u4e2d\u6587\u5b57...';
+
 // ── 拖动功能 ──────────────────────────────────────────────
 
 let isDragging = false;
@@ -112,16 +117,18 @@ document.addEventListener('mousedown', () => {
   window.api.notifyInteraction();
 }, true);
 
-window.api.onShowToolbar(({ text, settings, pinned = false, expanded = false }) => {
+window.api.onShowToolbar(({ text, settings, pinned = false, expanded = false, pending = false }) => {
   const activePanel = getActivePanel();
   const shouldPreservePanel = pinned && expanded && activePanel;
 
-  currentText = text;
+  currentText = pending ? '' : text;
   currentSettings = settings;
   isPinned = Boolean(pinned);
+  isTextPending = Boolean(pending);
 
   cleanupStreamListeners();
   applyFeatureVisibility(settings);
+  applyPendingState();
 
   if (shouldPreservePanel === 'translation') {
     showTranslationPanel();
@@ -144,6 +151,8 @@ window.api.onShowToolbar(({ text, settings, pinned = false, expanded = false }) 
 });
 
 window.api.onResetUI(() => {
+  isTextPending = false;
+  applyPendingState();
   resetPanels();
   resetChatState();
 });
@@ -157,6 +166,7 @@ window.api.onSettingsUpdated((settings) => {
 btnTranslate.addEventListener('click', async (e) => {
   window.api.notifyInteraction();
   e.stopPropagation();
+  if (isTextPending || !currentText.trim()) return;
 
   if (panelTranslation.classList.contains('active-panel')) {
     collapseAll();
@@ -169,6 +179,8 @@ btnTranslate.addEventListener('click', async (e) => {
 });
 
 async function doTranslate() {
+  if (isTextPending || !currentText.trim()) return;
+
   resetTranslationUI();
 
   try {
@@ -279,6 +291,8 @@ function renderWordResult(result) {
 
 btnChat.addEventListener('click', () => {
   window.api.notifyInteraction();
+  if (isTextPending || !currentText.trim()) return;
+
   if (panelChat.classList.contains('active-panel')) {
     collapseAll();
     return;
@@ -326,7 +340,7 @@ chatContextClear.addEventListener('click', (e) => {
 
 function sendChatMessage() {
   const content = chatInput.value.trim();
-  if (!content || isStreaming) return;
+  if (!content || isStreaming || isTextPending) return;
 
   if (!isApiConfiguredFor('chat')) {
     appendChatError(getMissingConfigMessage('chat'));
@@ -515,11 +529,28 @@ function updatePinControls() {
   btnPin.setAttribute('aria-label', btnPin.title);
 }
 
+function applyPendingState() {
+  const hasText = currentText.trim() !== '';
+  const disabled = isTextPending || !hasText;
+  const title = isTextPending ? LABEL_PENDING : null;
+
+  toolbar.classList.toggle('toolbar-pending', isTextPending);
+
+  btnTranslate.disabled = disabled;
+  btnTranslate.title = title || LABEL_TRANSLATE;
+  btnTranslate.setAttribute('aria-label', btnTranslate.title);
+
+  btnChat.disabled = disabled;
+  btnChat.title = title || LABEL_CHAT;
+  btnChat.setAttribute('aria-label', btnChat.title);
+}
+
 function applyFeatureVisibility(settings) {
   btnTranslate.style.display = settings.translationEnabled ? 'flex' : 'none';
   document.querySelector('.divider').style.display =
     (settings.translationEnabled && settings.aiChatEnabled) ? 'block' : 'none';
   btnChat.style.display = settings.aiChatEnabled ? 'flex' : 'none';
+  applyPendingState();
 }
 
 function showTranslationError(msg) {
