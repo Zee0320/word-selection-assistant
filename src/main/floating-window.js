@@ -78,6 +78,10 @@ function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {
     isExpanded = false;
   }
   const win = getOrCreateWindow();
+  if (pendingHideTimer) {
+    clearTimeout(pendingHideTimer);
+    pendingHideTimer = null;
+  }
   if (enableInteractionTimer) {
     clearTimeout(enableInteractionTimer);
     enableInteractionTimer = null;
