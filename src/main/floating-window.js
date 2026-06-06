@@ -9,10 +9,12 @@ let isExpanded = false;
 let isPinned = false;
 let enableInteractionTimer = null;
 let activeCaptureId = null;
+let pendingWatchdogTimer = null;
 
 // 显示时间戳，用于防止 mousedown 事件在 show 之后立刻隐藏
 let lastShowTime = 0;
 const SHOW_GRACE_MS = 300; // 显示后 300ms 内不响应 mousedown 隐藏
+const PENDING_WATCHDOG_MS = 1500;
 
 function getOrCreateWindow() {
   if (floatingWin && !floatingWin.isDestroyed()) {
@@ -59,6 +61,7 @@ function showPendingWindow(mouseX, mouseY, restoreFocusHandle = null, captureId 
   }
   activeCaptureId = captureId;
   showWindow('', mouseX, mouseY, restoreFocusHandle, { pending: true, captureId });
+  startPendingWatchdog(captureId);
 }
 
 function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {}) {
@@ -72,6 +75,9 @@ function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {
   const isPending = Boolean(options.pending);
   if (options.captureId !== undefined) {
     activeCaptureId = options.captureId;
+  }
+  if (!isPending) {
+    clearPendingWatchdog();
   }
 
   if (!isPinned) {
@@ -132,6 +138,7 @@ function hideWindow() {
   console.log(`[hideWindow] Called`);
   isExpanded = false;
   isPinned = false;
+  clearPendingWatchdog();
   if (enableInteractionTimer) {
     clearTimeout(enableInteractionTimer);
     enableInteractionTimer = null;
@@ -150,8 +157,24 @@ function hidePendingWindow(captureId = null) {
   if (isPinned || isExpanded) {
     return;
   }
+  clearPendingWatchdog();
   activeCaptureId = null;
   hideWindow();
+}
+
+function startPendingWatchdog(captureId = null) {
+  clearPendingWatchdog();
+  pendingWatchdogTimer = setTimeout(() => {
+    pendingWatchdogTimer = null;
+    hidePendingWindow(captureId);
+  }, PENDING_WATCHDOG_MS);
+}
+
+function clearPendingWatchdog() {
+  if (pendingWatchdogTimer) {
+    clearTimeout(pendingWatchdogTimer);
+    pendingWatchdogTimer = null;
+  }
 }
 
 // 延迟隐藏的定时器

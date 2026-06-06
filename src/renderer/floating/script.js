@@ -536,11 +536,15 @@ function applyPendingState() {
 
   toolbar.classList.toggle('toolbar-pending', isTextPending);
 
-  btnTranslate.disabled = disabled;
+  btnTranslate.disabled = false;
+  btnTranslate.classList.toggle('toolbar-btn-disabled', disabled);
+  btnTranslate.setAttribute('aria-disabled', String(disabled));
   btnTranslate.title = title || LABEL_TRANSLATE;
   btnTranslate.setAttribute('aria-label', btnTranslate.title);
 
-  btnChat.disabled = disabled;
+  btnChat.disabled = false;
+  btnChat.classList.toggle('toolbar-btn-disabled', disabled);
+  btnChat.setAttribute('aria-disabled', String(disabled));
   btnChat.title = title || LABEL_CHAT;
   btnChat.setAttribute('aria-label', btnChat.title);
 }

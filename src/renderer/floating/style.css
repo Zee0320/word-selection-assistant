@@ -94,11 +94,23 @@ html, body {
 
 .toolbar-btn:disabled {
   opacity: 0.45;
-  cursor: wait;
+  cursor: default;
   transform: none;
 }
 
-.toolbar-btn:disabled:hover {
+.toolbar-btn.toolbar-btn-disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+#toolbar.toolbar-pending .toolbar-btn:disabled,
+#toolbar.toolbar-pending .toolbar-btn.toolbar-btn-disabled {
+  cursor: wait;
+}
+
+.toolbar-btn:disabled:hover,
+.toolbar-btn.toolbar-btn-disabled:hover {
   background: transparent;
   color: var(--text-primary);
 }

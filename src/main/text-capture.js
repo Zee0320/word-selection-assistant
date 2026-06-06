@@ -22,7 +22,8 @@ let clickCount = 0;
 
 const DRAG_THRESHOLD = 5;
 const CLIPBOARD_WAIT_MS = 150;
-const PENDING_TOOLBAR_DELAY_MS = 40;
+const PENDING_TOOLBAR_DELAY_MS = 20;
+const PENDING_WINDOW_INFO_BUDGET_MS = 10;
 
 function setOnMouseDown(cb) {
   onMouseDownCallback = cb;
@@ -173,6 +174,17 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function withTimeout(promise, timeoutMs, fallback = null) {
+  let timer = null;
+  const timeout = new Promise(resolve => {
+    timer = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function isCurrentCapture(captureId) {
   return captureId === activeCaptureId;
 }
@@ -194,9 +206,16 @@ function createPendingCaptureSession({
 
   const timer = setTimeout(async () => {
     try {
-      const activeWindowInfo = await getActiveWindowInfo();
+      const activeWindowInfo = await withTimeout(
+        getActiveWindowInfo(),
+        PENDING_WINDOW_INFO_BUDGET_MS,
+        null
+      );
       const hwnd = activeWindowInfo?.hwnd;
-      if (resolved || !isCurrentCapture(captureId) || shouldIgnoreWindow?.(hwnd)) {
+      if (resolved || !isCurrentCapture(captureId)) {
+        return;
+      }
+      if (hwnd && shouldIgnoreWindow?.(hwnd)) {
         return;
       }
 
