@@ -63,8 +63,16 @@ app.whenReady().then(() => {
   tray.init();
 
   // 初始化文本捕获
-  textCapture.init((text, x, y, activeWindowHandle) => {
-    floatingWindow.showWindow(text, x, y, activeWindowHandle);
+  textCapture.init({
+    onCapturePending: (x, y, activeWindowHandle, captureId) => {
+      floatingWindow.showPendingWindow(x, y, activeWindowHandle, captureId);
+    },
+    onTextCaptured: (text, x, y, activeWindowHandle, captureId) => {
+      floatingWindow.showWindow(text, x, y, activeWindowHandle, { captureId });
+    },
+    onCaptureMissed: (captureId) => {
+      floatingWindow.hidePendingWindow(captureId);
+    }
   });
   textCapture.setShouldIgnoreWindow((windowHandle) => {
     if (!windowHandle) return false;

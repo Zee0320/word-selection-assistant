@@ -8,6 +8,7 @@ let floatingWin = null;
 let isExpanded = false;
 let isPinned = false;
 let enableInteractionTimer = null;
+let activeCaptureId = null;
 
 // 显示时间戳，用于防止 mousedown 事件在 show 之后立刻隐藏
 let lastShowTime = 0;
@@ -52,12 +53,25 @@ function getOrCreateWindow() {
   return floatingWin;
 }
 
-function showWindow(text, mouseX, mouseY, restoreFocusHandle = null) {
+function showPendingWindow(mouseX, mouseY, restoreFocusHandle = null, captureId = null) {
+  if (isPinned && isExpanded) {
+    return;
+  }
+  activeCaptureId = captureId;
+  showWindow('', mouseX, mouseY, restoreFocusHandle, { pending: true, captureId });
+}
+
+function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {}) {
   console.log(`[showWindow] text=${text}, x=${mouseX}, y=${mouseY}`);
   const settings = getSettings();
 
   if (!settings.translationEnabled && !settings.aiChatEnabled) {
     return;
+  }
+
+  const isPending = Boolean(options.pending);
+  if (options.captureId !== undefined) {
+    activeCaptureId = options.captureId;
   }
 
   if (!isPinned) {
@@ -77,7 +91,10 @@ function showWindow(text, mouseX, mouseY, restoreFocusHandle = null) {
   }
 
   const sendAndShow = () => {
-    win.webContents.send('show-toolbar', { text, settings, pinned: isPinned, expanded: isExpanded });
+    if (isPending && options.captureId != null && activeCaptureId !== options.captureId) {
+      return;
+    }
+    win.webContents.send('show-toolbar', { text, settings, pinned: isPinned, expanded: isExpanded, pending: isPending });
     if (isPinned && isExpanded) {
       if (!win.isVisible()) win.showInactive();
       windowFocus.restoreForegroundWindow(restoreFocusHandle);
@@ -120,6 +137,17 @@ function hideWindow() {
     floatingWin.setFocusable(false);
     floatingWin.webContents.send('reset-ui');
   }
+}
+
+function hidePendingWindow(captureId = null) {
+  if (captureId !== null && activeCaptureId !== captureId) {
+    return;
+  }
+  if (isPinned || isExpanded) {
+    return;
+  }
+  activeCaptureId = null;
+  hideWindow();
 }
 
 // 延迟隐藏的定时器
@@ -250,4 +278,4 @@ function destroy() {
   }
 }
 
-module.exports = { showWindow, hideWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, getWindowHandle, destroy, getOrCreateWindow };
+module.exports = { showWindow, showPendingWindow, hideWindow, hidePendingWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, getWindowHandle, destroy, getOrCreateWindow };
