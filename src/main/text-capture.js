@@ -9,8 +9,11 @@ const { isTerminalLikeWindow } = windowFocus._private;
 
 let isEnabled = true;
 let onTextCaptured = null;
+let onCapturePending = null;
+let onCaptureMissed = null;
 let onMouseDownCallback = null;
 let shouldIgnoreWindow = null;
+let activeCaptureId = 0;
 
 let mouseDownX = 0;
 let mouseDownY = 0;
@@ -29,8 +32,16 @@ function setShouldIgnoreWindow(cb) {
   shouldIgnoreWindow = cb;
 }
 
-function init(callback) {
-  onTextCaptured = callback;
+function init(callbackOrHandlers) {
+  if (typeof callbackOrHandlers === 'function') {
+    onTextCaptured = callbackOrHandlers;
+    onCapturePending = null;
+    onCaptureMissed = null;
+  } else {
+    onTextCaptured = callbackOrHandlers?.onTextCaptured || null;
+    onCapturePending = callbackOrHandlers?.onCapturePending || null;
+    onCaptureMissed = callbackOrHandlers?.onCaptureMissed || null;
+  }
 
   uIOhook.on('mousedown', (e) => {
     mouseDownX = e.x;
@@ -58,14 +69,40 @@ function init(callback) {
 
     if (!isDrag && !isMultiClick) return;
 
+    const captureId = ++activeCaptureId;
     const activeWindowInfoPromise = windowFocus.getForegroundWindowInfo();
+    let cachedActiveWindowInfo = null;
+    const getActiveWindowInfo = async () => {
+      if (!cachedActiveWindowInfo) {
+        cachedActiveWindowInfo = await activeWindowInfoPromise;
+      }
+      return cachedActiveWindowInfo;
+    };
+    const pendingSession = createPendingCaptureSession({
+      captureId,
+      mouseX: e.x,
+      mouseY: e.y,
+      getActiveWindowInfo,
+      shouldIgnoreWindow,
+      isCurrentCapture,
+      onPending: onCapturePending,
+      onMissed: onCaptureMissed
+    });
 
     // Let selection settle before reading, especially for double-click selection.
     await sleep(isMultiClick ? 150 : 80);
-    const activeWindowInfo = await activeWindowInfoPromise;
+    const activeWindowInfo = await getActiveWindowInfo();
+    if (!isCurrentCapture(captureId)) {
+      pendingSession.markResolved();
+      pendingSession.hideIfPending();
+      return;
+    }
+
     const activeWindowHandle = activeWindowInfo.hwnd;
 
     if (shouldIgnoreWindow && shouldIgnoreWindow(activeWindowHandle)) {
+      pendingSession.markResolved();
+      pendingSession.hideIfPending();
       console.log('[TextCapture] Ignored own application window');
       return;
     }
@@ -82,6 +119,12 @@ function init(callback) {
       readViaClipboardFallback: captureSelectedTextFromClipboard,
       allowClipboardFallback
     });
+    pendingSession.markResolved();
+
+    if (!isCurrentCapture(captureId)) {
+      pendingSession.hideIfPending();
+      return;
+    }
 
     if (!selectedText && !allowClipboardFallback) {
       console.log('[TextCapture] Skipping clipboard fallback for terminal-like window:', {
@@ -92,11 +135,14 @@ function init(callback) {
     }
     console.log('[TextCapture] Selected text:', selectedText ? `"${selectedText}"` : '(empty)');
 
-    if (!selectedText) return;
+    if (!selectedText) {
+      pendingSession.hideIfPending();
+      return;
+    }
 
     if (onTextCaptured) {
       console.log(`[TextCapture] Captured text: "${selectedText}"`);
-      onTextCaptured(selectedText, e.x, e.y, activeWindowHandle);
+      onTextCaptured(selectedText, e.x, e.y, activeWindowHandle, captureId);
     }
   });
 
@@ -127,6 +173,10 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function isCurrentCapture(captureId) {
+  return captureId === activeCaptureId;
+}
+
 function createPendingCaptureSession({
   captureId,
   delayMs = PENDING_TOOLBAR_DELAY_MS,
@@ -150,8 +200,10 @@ function createPendingCaptureSession({
         return;
       }
 
-      pendingShown = true;
-      onPending(mouseX, mouseY, hwnd, captureId);
+      if (onPending) {
+        pendingShown = true;
+        onPending(mouseX, mouseY, hwnd, captureId);
+      }
     } catch (err) {
       logger.warn?.('[TextCapture] Pending toolbar skipped:', err.message || err);
     }
@@ -163,13 +215,13 @@ function createPendingCaptureSession({
       clearTimeout(timer);
     },
     hideIfPending() {
-      const shouldHide = !resolved && pendingShown;
+      const shouldHide = pendingShown;
       resolved = true;
       clearTimeout(timer);
 
       if (shouldHide) {
         pendingShown = false;
-        onMissed(captureId);
+        onMissed?.(captureId);
       }
     },
     wasPendingShown() {

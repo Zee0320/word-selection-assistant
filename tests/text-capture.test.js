@@ -265,3 +265,55 @@ test('pending capture session hides when unresolved capture misses after pending
   assert.equal(session.wasPendingShown(), false);
   assert.deepEqual(missedCaptureIds, [11]);
 });
+
+test('pending capture session hides after capture is marked resolved', async () => {
+  const missedCaptureIds = [];
+
+  const session = createPendingCaptureSession({
+    captureId: 13,
+    delayMs: 5,
+    mouseX: 10,
+    mouseY: 20,
+    getActiveWindowInfo: async () => ({ hwnd: 123 }),
+    shouldIgnoreWindow: () => false,
+    isCurrentCapture: () => true,
+    onPending: () => {},
+    onMissed: captureId => missedCaptureIds.push(captureId)
+  });
+
+  await delay(20);
+  assert.equal(session.wasPendingShown(), true);
+
+  session.markResolved();
+  session.hideIfPending();
+
+  assert.equal(session.wasPendingShown(), false);
+  assert.deepEqual(missedCaptureIds, [13]);
+});
+
+test('pending capture session hides after pending capture becomes stale', async () => {
+  let isCurrent = true;
+  const missedCaptureIds = [];
+
+  const session = createPendingCaptureSession({
+    captureId: 14,
+    delayMs: 5,
+    mouseX: 10,
+    mouseY: 20,
+    getActiveWindowInfo: async () => ({ hwnd: 123 }),
+    shouldIgnoreWindow: () => false,
+    isCurrentCapture: () => isCurrent,
+    onPending: () => {},
+    onMissed: captureId => missedCaptureIds.push(captureId)
+  });
+
+  await delay(20);
+  assert.equal(session.wasPendingShown(), true);
+
+  isCurrent = false;
+  session.markResolved();
+  session.hideIfPending();
+
+  assert.equal(session.wasPendingShown(), false);
+  assert.deepEqual(missedCaptureIds, [14]);
+});
