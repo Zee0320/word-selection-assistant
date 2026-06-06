@@ -19,6 +19,7 @@ let clickCount = 0;
 
 const DRAG_THRESHOLD = 5;
 const CLIPBOARD_WAIT_MS = 150;
+const PENDING_TOOLBAR_DELAY_MS = 40;
 
 function setOnMouseDown(cb) {
   onMouseDownCallback = cb;
@@ -124,6 +125,57 @@ function destroy() {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function createPendingCaptureSession({
+  captureId,
+  delayMs = PENDING_TOOLBAR_DELAY_MS,
+  mouseX,
+  mouseY,
+  getActiveWindowInfo,
+  shouldIgnoreWindow,
+  isCurrentCapture,
+  onPending,
+  onMissed,
+  logger = console
+}) {
+  let resolved = false;
+  let pendingShown = false;
+
+  const timer = setTimeout(async () => {
+    try {
+      const activeWindowInfo = await getActiveWindowInfo();
+      const hwnd = activeWindowInfo?.hwnd;
+      if (resolved || !isCurrentCapture(captureId) || shouldIgnoreWindow?.(hwnd)) {
+        return;
+      }
+
+      pendingShown = true;
+      onPending(mouseX, mouseY, hwnd, captureId);
+    } catch (err) {
+      logger.warn?.('[TextCapture] Pending toolbar skipped:', err.message || err);
+    }
+  }, delayMs);
+
+  return {
+    markResolved() {
+      resolved = true;
+      clearTimeout(timer);
+    },
+    hideIfPending() {
+      const shouldHide = !resolved && pendingShown;
+      resolved = true;
+      clearTimeout(timer);
+
+      if (shouldHide) {
+        pendingShown = false;
+        onMissed(captureId);
+      }
+    },
+    wasPendingShown() {
+      return pendingShown;
+    }
+  };
 }
 
 function hasNonEmptyImage(image) {
@@ -247,5 +299,8 @@ module.exports = {
   resume,
   restoreClipboardSnapshot,
   setOnMouseDown,
-  setShouldIgnoreWindow
+  setShouldIgnoreWindow,
+  _private: {
+    createPendingCaptureSession
+  }
 };
