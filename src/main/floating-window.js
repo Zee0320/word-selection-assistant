@@ -3,6 +3,7 @@ const { BrowserWindow, screen } = require('electron');
 const path = require('path');
 const { getSettings } = require('./store');
 const windowFocus = require('./window-focus');
+const { isPhysicalPointInsideWindow } = require('./floating-window-hit-test');
 
 let floatingWin = null;
 let isExpanded = false;
@@ -183,10 +184,19 @@ let pendingHideTimer = null;
 /**
  * 从外部（mousedown 钩子）请求隐藏。
  */
-function requestHide() {
+function requestHide(mouseX = null, mouseY = null) {
   console.log('[requestHide] Called, time since show:', Date.now() - lastShowTime, 'ms');
   if (isExpanded && isPinned) {
     console.log('[requestHide] Window is pinned, ignoring');
+    return;
+  }
+  if (
+    mouseX !== null &&
+    mouseY !== null &&
+    isPhysicalPointInsideWindow(mouseX, mouseY, floatingWin, screen)
+  ) {
+    console.log('[requestHide] Click inside floating window, keeping visible');
+    extendGrace();
     return;
   }
   if (Date.now() - lastShowTime < SHOW_GRACE_MS) {

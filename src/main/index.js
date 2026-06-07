@@ -83,12 +83,10 @@ app.whenReady().then(() => {
     ].some(handle => handle && handle === windowHandle);
   });
 
-  // 全局鼠标按下事件，用于点击外部隐藏悬浮窗
-  // 不做坐标判断（uiohook 和 Electron 的坐标系在高 DPI 下不一致）
-  // 而是用 requestHide 的保护期机制：显示后 300ms 内的点击会被忽略
-  textCapture.setOnMouseDown(() => {
+  // 全局鼠标按下事件：点击悬浮窗内部延长保护期，点击外部请求隐藏
+  textCapture.setOnMouseDown((x, y) => {
     if (floatingWindow.isVisible()) {
-      floatingWindow.requestHide();
+      floatingWindow.requestHide(x, y);
     }
   });
 
