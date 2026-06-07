@@ -459,7 +459,9 @@ function showChatPanel() {
   window.api.resizeWindow(360, 56 + 420);
 }
 
-function collapseAll() {
+function collapseAll(options = {}) {
+  const notifyMain = options.notifyMain !== false;
+
   isPinned = false;
   panelTranslation.classList.add('hidden');
   panelTranslation.classList.remove('active-panel');
@@ -468,11 +470,13 @@ function collapseAll() {
   btnTranslate.classList.remove('active');
   btnChat.classList.remove('active');
   updatePinControls();
-  window.api.collapseWindow();
+  if (notifyMain) {
+    window.api.collapseWindow();
+  }
 }
 
 function resetPanels() {
-  collapseAll();
+  collapseAll({ notifyMain: false });
   resetTranslationUI();
 }
 
@@ -536,13 +540,13 @@ function applyPendingState() {
 
   toolbar.classList.toggle('toolbar-pending', isTextPending);
 
-  btnTranslate.disabled = false;
+  btnTranslate.disabled = disabled;
   btnTranslate.classList.toggle('toolbar-btn-disabled', disabled);
   btnTranslate.setAttribute('aria-disabled', String(disabled));
   btnTranslate.title = title || LABEL_TRANSLATE;
   btnTranslate.setAttribute('aria-label', btnTranslate.title);
 
-  btnChat.disabled = false;
+  btnChat.disabled = disabled;
   btnChat.classList.toggle('toolbar-btn-disabled', disabled);
   btnChat.setAttribute('aria-disabled', String(disabled));
   btnChat.title = title || LABEL_CHAT;

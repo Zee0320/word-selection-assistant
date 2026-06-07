@@ -86,8 +86,9 @@ app.whenReady().then(() => {
   // 全局鼠标按下事件：点击悬浮窗内部延长保护期，点击外部请求隐藏
   textCapture.setOnMouseDown((x, y) => {
     if (floatingWindow.isVisible()) {
-      floatingWindow.requestHide(x, y);
+      return floatingWindow.requestHide(x, y);
     }
+    return false;
   });
 
   // 预加载悬浮窗，保持事件循环活跃并加快首次显示速度

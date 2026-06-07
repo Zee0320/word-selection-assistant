@@ -5,8 +5,6 @@ const windowFocus = require('./window-focus');
 const { readSelectedTextViaUIAutomation } = require('./selected-text-reader');
 const { readSelectedTextWithFallback } = require('./selected-text-capture-strategy');
 
-const { isTerminalLikeWindow } = windowFocus._private;
-
 let isEnabled = true;
 let onTextCaptured = null;
 let onCapturePending = null;
@@ -14,6 +12,7 @@ let onCaptureMissed = null;
 let onMouseDownCallback = null;
 let shouldIgnoreWindow = null;
 let activeCaptureId = 0;
+let ignoreCurrentMouseGesture = false;
 
 let mouseDownX = 0;
 let mouseDownY = 0;
@@ -25,6 +24,7 @@ let clickCount = 0;
 const DRAG_THRESHOLD = 5;
 const MULTI_CLICK_DISTANCE = 8;
 const CLIPBOARD_WAIT_MS = 150;
+const SELECTION_SETTLE_MS = 160;
 const PENDING_TOOLBAR_DELAY_MS = 20;
 const PENDING_WINDOW_INFO_BUDGET_MS = 10;
 
@@ -50,13 +50,18 @@ function init(callbackOrHandlers) {
   uIOhook.on('mousedown', (e) => {
     mouseDownX = e.x;
     mouseDownY = e.y;
+    ignoreCurrentMouseGesture = false;
     if (onMouseDownCallback) {
-      onMouseDownCallback(e.x, e.y);
+      ignoreCurrentMouseGesture = Boolean(onMouseDownCallback(e.x, e.y));
     }
   });
 
   uIOhook.on('mouseup', async (e) => {
     if (!isEnabled) return;
+    if (ignoreCurrentMouseGesture) {
+      ignoreCurrentMouseGesture = false;
+      return;
+    }
 
     const now = Date.now();
     if (isRepeatedMouseUp(e, lastMouseUpX, lastMouseUpY, now, lastMouseUpTime)) {
@@ -96,7 +101,7 @@ function init(callbackOrHandlers) {
     });
 
     // Let selection settle before reading, especially for double-click selection.
-    await sleep(isMultiClick ? 150 : 80);
+    await sleep(SELECTION_SETTLE_MS);
     const activeWindowInfo = await getActiveWindowInfo();
     if (!isCurrentCapture(captureId)) {
       pendingSession.markResolved();
@@ -113,7 +118,7 @@ function init(callbackOrHandlers) {
       return;
     }
 
-    const allowClipboardFallback = !isTerminalLikeWindow(activeWindowInfo);
+    const allowClipboardFallback = true;
     const selectedText = await readSelectedTextWithFallback({
       readViaUIAutomation: async () => {
         const text = await readSelectedTextViaUIAutomation();
@@ -132,13 +137,6 @@ function init(callbackOrHandlers) {
       return;
     }
 
-    if (!selectedText && !allowClipboardFallback) {
-      console.log('[TextCapture] Skipping clipboard fallback for terminal-like window:', {
-        processName: activeWindowInfo.processName,
-        className: activeWindowInfo.className,
-        title: activeWindowInfo.title
-      });
-    }
     console.log('[TextCapture] Selected text:', selectedText ? `"${selectedText}"` : '(empty)');
 
     if (!selectedText) {
