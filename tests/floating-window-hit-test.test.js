@@ -50,6 +50,20 @@ test('isPhysicalPointInsideWindow converts physical coordinates to DIP before hi
   assert.equal(isPhysicalPointInsideWindow(222, 140, windowRef, screenApi, 0), false);
 });
 
+test('isPhysicalPointInsideWindow accepts raw coordinates when they already match bounds', () => {
+  const screenApi = {
+    screenToDipPoint(point) {
+      return { x: point.x / 2, y: point.y / 2 };
+    }
+  };
+  const windowRef = {
+    isDestroyed: () => false,
+    getBounds: () => ({ x: 100, y: 100, width: 80, height: 40 })
+  };
+
+  assert.equal(isPhysicalPointInsideWindow(120, 120, windowRef, screenApi, 0), true);
+});
+
 test('isPhysicalPointInsideWindow rejects destroyed or missing windows', () => {
   const screenApi = {
     screenToDipPoint(point) {

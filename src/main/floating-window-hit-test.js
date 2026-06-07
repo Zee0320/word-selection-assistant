@@ -25,8 +25,13 @@ function isPhysicalPointInsideWindow(mouseX, mouseY, windowRef, screenApi, paddi
   const bounds = windowRef.getBounds();
   if (!bounds) return false;
 
-  const point = toDipPoint({ x: mouseX, y: mouseY }, screenApi);
-  return isPointInsideBounds(point, bounds, padding);
+  const rawPoint = { x: mouseX, y: mouseY };
+  const dipPoint = toDipPoint(rawPoint, screenApi);
+
+  return (
+    isPointInsideBounds(dipPoint, bounds, padding) ||
+    isPointInsideBounds(rawPoint, bounds, padding)
+  );
 }
 
 module.exports = {
