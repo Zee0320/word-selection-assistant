@@ -12,11 +12,13 @@ let enableInteractionTimer = null;
 let activeCaptureId = null;
 let pendingWatchdogTimer = null;
 let isPendingToolbarVisible = false;
+let lastPendingInteractionTime = 0;
 
 // 显示时间戳，用于防止 mousedown 事件在 show 之后立刻隐藏
 let lastShowTime = 0;
 const SHOW_GRACE_MS = 300; // 显示后 300ms 内不响应 mousedown 隐藏
 const PENDING_WATCHDOG_MS = 1500;
+const PENDING_INTERACTION_HOLD_MS = 1200;
 
 function getOrCreateWindow() {
   if (floatingWin && !floatingWin.isDestroyed()) {
@@ -76,6 +78,9 @@ function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {
 
   const isPending = Boolean(options.pending);
   isPendingToolbarVisible = isPending;
+  if (!isPending) {
+    lastPendingInteractionTime = 0;
+  }
   if (options.captureId !== undefined) {
     activeCaptureId = options.captureId;
   }
@@ -142,6 +147,7 @@ function hideWindow() {
   isExpanded = false;
   isPinned = false;
   isPendingToolbarVisible = false;
+  lastPendingInteractionTime = 0;
   clearPendingWatchdog();
   if (enableInteractionTimer) {
     clearTimeout(enableInteractionTimer);
@@ -161,7 +167,13 @@ function hidePendingWindow(captureId = null) {
   if (isPinned || isExpanded) {
     return;
   }
+  if (isPendingToolbarVisible && Date.now() - lastPendingInteractionTime < PENDING_INTERACTION_HOLD_MS) {
+    console.log('[hidePendingWindow] Recent pending interaction, keeping visible');
+    startPendingWatchdog(captureId);
+    return;
+  }
   isPendingToolbarVisible = false;
+  lastPendingInteractionTime = 0;
   clearPendingWatchdog();
   activeCaptureId = null;
   hideWindow();
@@ -196,6 +208,7 @@ function requestHide(mouseX = null, mouseY = null) {
   }
   if (isPendingToolbarVisible) {
     console.log('[requestHide] Pending toolbar is visible, keeping visible');
+    markPendingInteraction();
     extendGrace();
     return;
   }
@@ -225,6 +238,9 @@ function requestHide(mouseX = null, mouseY = null) {
  */
 function extendGrace() {
   lastShowTime = Date.now();
+  if (isPendingToolbarVisible) {
+    markPendingInteraction();
+  }
   if (pendingHideTimer) {
     clearTimeout(pendingHideTimer);
     pendingHideTimer = null;
@@ -268,6 +284,7 @@ function collapseWindow() {
   isExpanded = false;
   isPinned = false;
   isPendingToolbarVisible = false;
+  lastPendingInteractionTime = 0;
   if (floatingWin && !floatingWin.isDestroyed()) {
     floatingWin.setSize(320, 56);
     floatingWin.setFocusable(false); // 收起后不可聚焦，避免抢焦点
@@ -320,10 +337,15 @@ function destroy() {
   isPinned = false;
   isExpanded = false;
   isPendingToolbarVisible = false;
+  lastPendingInteractionTime = 0;
   if (floatingWin && !floatingWin.isDestroyed()) {
     floatingWin.destroy();
     floatingWin = null;
   }
+}
+
+function markPendingInteraction() {
+  lastPendingInteractionTime = Date.now();
 }
 
 module.exports = { showWindow, showPendingWindow, hideWindow, hidePendingWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, getWindowHandle, destroy, getOrCreateWindow };
