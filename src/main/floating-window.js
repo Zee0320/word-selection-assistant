@@ -11,6 +11,7 @@ let isPinned = false;
 let enableInteractionTimer = null;
 let activeCaptureId = null;
 let pendingWatchdogTimer = null;
+let isPendingToolbarVisible = false;
 
 // 显示时间戳，用于防止 mousedown 事件在 show 之后立刻隐藏
 let lastShowTime = 0;
@@ -74,6 +75,7 @@ function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {
   }
 
   const isPending = Boolean(options.pending);
+  isPendingToolbarVisible = isPending;
   if (options.captureId !== undefined) {
     activeCaptureId = options.captureId;
   }
@@ -139,6 +141,7 @@ function hideWindow() {
   console.log(`[hideWindow] Called`);
   isExpanded = false;
   isPinned = false;
+  isPendingToolbarVisible = false;
   clearPendingWatchdog();
   if (enableInteractionTimer) {
     clearTimeout(enableInteractionTimer);
@@ -158,6 +161,7 @@ function hidePendingWindow(captureId = null) {
   if (isPinned || isExpanded) {
     return;
   }
+  isPendingToolbarVisible = false;
   clearPendingWatchdog();
   activeCaptureId = null;
   hideWindow();
@@ -188,6 +192,11 @@ function requestHide(mouseX = null, mouseY = null) {
   console.log('[requestHide] Called, time since show:', Date.now() - lastShowTime, 'ms');
   if (isExpanded && isPinned) {
     console.log('[requestHide] Window is pinned, ignoring');
+    return;
+  }
+  if (isPendingToolbarVisible) {
+    console.log('[requestHide] Pending toolbar is visible, keeping visible');
+    extendGrace();
     return;
   }
   if (
@@ -258,6 +267,7 @@ function collapseWindow() {
   console.log(`[collapseWindow] Called`);
   isExpanded = false;
   isPinned = false;
+  isPendingToolbarVisible = false;
   if (floatingWin && !floatingWin.isDestroyed()) {
     floatingWin.setSize(320, 56);
     floatingWin.setFocusable(false); // 收起后不可聚焦，避免抢焦点
@@ -309,6 +319,7 @@ function getWindowHandle() {
 function destroy() {
   isPinned = false;
   isExpanded = false;
+  isPendingToolbarVisible = false;
   if (floatingWin && !floatingWin.isDestroyed()) {
     floatingWin.destroy();
     floatingWin = null;
