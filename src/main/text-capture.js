@@ -5,22 +5,30 @@ const { isAutomaticTextCaptureSupported } = require('./platform-info');
 const { readSelectedTextViaUIAutomation } = require('./selected-text-reader');
 const { readSelectedTextWithFallback } = require('./selected-text-capture-strategy');
 
-const { isTerminalLikeWindow } = windowFocus._private;
-
 let isEnabled = true;
 let onTextCaptured = null;
+let onCapturePending = null;
+let onCaptureMissed = null;
 let onMouseDownCallback = null;
 let shouldIgnoreWindow = null;
+let activeCaptureId = 0;
+let ignoreCurrentMouseGesture = false;
 
 let mouseDownX = 0;
 let mouseDownY = 0;
 let lastMouseUpTime = 0;
+let lastMouseUpX = null;
+let lastMouseUpY = null;
 let clickCount = 0;
 let hookApi = null;
 let hookLoadAttempted = false;
 
 const DRAG_THRESHOLD = 5;
+const MULTI_CLICK_DISTANCE = 8;
 const CLIPBOARD_WAIT_MS = 150;
+const SELECTION_SETTLE_MS = 160;
+const PENDING_TOOLBAR_DELAY_MS = 20;
+const PENDING_WINDOW_INFO_BUDGET_MS = 10;
 
 function getHookApi() {
   if (!isAutomaticTextCaptureSupported()) return null;
@@ -44,8 +52,17 @@ function setShouldIgnoreWindow(cb) {
   shouldIgnoreWindow = cb;
 }
 
-function init(callback) {
-  onTextCaptured = callback;
+function init(callbackOrHandlers) {
+  if (typeof callbackOrHandlers === 'function') {
+    onTextCaptured = callbackOrHandlers;
+    onCapturePending = null;
+    onCaptureMissed = null;
+  } else {
+    onTextCaptured = callbackOrHandlers?.onTextCaptured || null;
+    onCapturePending = callbackOrHandlers?.onCapturePending || null;
+    onCaptureMissed = callbackOrHandlers?.onCaptureMissed || null;
+  }
+
   const hook = getHookApi();
 
   if (!hook) {
@@ -56,21 +73,28 @@ function init(callback) {
   hook.uIOhook.on('mousedown', (e) => {
     mouseDownX = e.x;
     mouseDownY = e.y;
+    ignoreCurrentMouseGesture = false;
     if (onMouseDownCallback) {
-      onMouseDownCallback(e.x, e.y);
+      ignoreCurrentMouseGesture = Boolean(onMouseDownCallback(e.x, e.y));
     }
   });
 
   hook.uIOhook.on('mouseup', async (e) => {
     if (!isEnabled) return;
+    if (ignoreCurrentMouseGesture) {
+      ignoreCurrentMouseGesture = false;
+      return;
+    }
 
     const now = Date.now();
-    if (now - lastMouseUpTime < 500) {
+    if (isRepeatedMouseUp(e, lastMouseUpX, lastMouseUpY, now, lastMouseUpTime)) {
       clickCount++;
     } else {
       clickCount = 1;
     }
     lastMouseUpTime = now;
+    lastMouseUpX = e.x;
+    lastMouseUpY = e.y;
 
     const dx = Math.abs(e.x - mouseDownX);
     const dy = Math.abs(e.y - mouseDownY);
@@ -79,19 +103,45 @@ function init(callback) {
 
     if (!isDrag && !isMultiClick) return;
 
+    const captureId = ++activeCaptureId;
     const activeWindowInfoPromise = windowFocus.getForegroundWindowInfo();
+    let cachedActiveWindowInfo = null;
+    const getActiveWindowInfo = async () => {
+      if (!cachedActiveWindowInfo) {
+        cachedActiveWindowInfo = await activeWindowInfoPromise;
+      }
+      return cachedActiveWindowInfo;
+    };
+    const pendingSession = createPendingCaptureSession({
+      captureId,
+      mouseX: e.x,
+      mouseY: e.y,
+      getActiveWindowInfo,
+      shouldIgnoreWindow,
+      isCurrentCapture,
+      onPending: onCapturePending,
+      onMissed: onCaptureMissed
+    });
 
     // Let selection settle before reading, especially for double-click selection.
-    await sleep(isMultiClick ? 150 : 80);
-    const activeWindowInfo = await activeWindowInfoPromise;
+    await sleep(SELECTION_SETTLE_MS);
+    const activeWindowInfo = await getActiveWindowInfo();
+    if (!isCurrentCapture(captureId)) {
+      pendingSession.markResolved();
+      pendingSession.hideIfPending();
+      return;
+    }
+
     const activeWindowHandle = activeWindowInfo.hwnd;
 
     if (shouldIgnoreWindow && shouldIgnoreWindow(activeWindowHandle)) {
+      pendingSession.markResolved();
+      pendingSession.hideIfPending();
       console.log('[TextCapture] Ignored own application window');
       return;
     }
 
-    const allowClipboardFallback = !isTerminalLikeWindow(activeWindowInfo);
+    const allowClipboardFallback = true;
     const selectedText = await readSelectedTextWithFallback({
       readViaUIAutomation: async () => {
         const text = await readSelectedTextViaUIAutomation();
@@ -103,21 +153,23 @@ function init(callback) {
       readViaClipboardFallback: captureSelectedTextFromClipboard,
       allowClipboardFallback
     });
+    pendingSession.markResolved();
 
-    if (!selectedText && !allowClipboardFallback) {
-      console.log('[TextCapture] Skipping clipboard fallback for terminal-like window:', {
-        processName: activeWindowInfo.processName,
-        className: activeWindowInfo.className,
-        title: activeWindowInfo.title
-      });
+    if (!isCurrentCapture(captureId)) {
+      pendingSession.hideIfPending();
+      return;
     }
+
     console.log('[TextCapture] Selected text:', selectedText ? `"${selectedText}"` : '(empty)');
 
-    if (!selectedText) return;
+    if (!selectedText) {
+      pendingSession.hideIfPending();
+      return;
+    }
 
     if (onTextCaptured) {
       console.log(`[TextCapture] Captured text: "${selectedText}"`);
-      onTextCaptured(selectedText, e.x, e.y, activeWindowHandle);
+      onTextCaptured(selectedText, e.x, e.y, activeWindowHandle, captureId);
     }
   });
 
@@ -149,6 +201,91 @@ function destroy() {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRepeatedMouseUp(e, previousX, previousY, now, previousTime) {
+  if (previousX === null || previousY === null) return false;
+  if (now - previousTime >= 500) return false;
+
+  return (
+    Math.abs(e.x - previousX) <= MULTI_CLICK_DISTANCE &&
+    Math.abs(e.y - previousY) <= MULTI_CLICK_DISTANCE
+  );
+}
+
+function withTimeout(promise, timeoutMs, fallback = null) {
+  let timer = null;
+  const timeout = new Promise(resolve => {
+    timer = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function isCurrentCapture(captureId) {
+  return captureId === activeCaptureId;
+}
+
+function createPendingCaptureSession({
+  captureId,
+  delayMs = PENDING_TOOLBAR_DELAY_MS,
+  mouseX,
+  mouseY,
+  getActiveWindowInfo,
+  shouldIgnoreWindow,
+  isCurrentCapture,
+  onPending,
+  onMissed,
+  logger = console
+}) {
+  let resolved = false;
+  let pendingShown = false;
+
+  const timer = setTimeout(async () => {
+    try {
+      const activeWindowInfo = await withTimeout(
+        getActiveWindowInfo(),
+        PENDING_WINDOW_INFO_BUDGET_MS,
+        null
+      );
+      const hwnd = activeWindowInfo?.hwnd;
+      if (resolved || !isCurrentCapture(captureId)) {
+        return;
+      }
+      if (hwnd && shouldIgnoreWindow?.(hwnd)) {
+        return;
+      }
+
+      if (onPending) {
+        pendingShown = true;
+        onPending(mouseX, mouseY, hwnd, captureId);
+      }
+    } catch (err) {
+      logger.warn?.('[TextCapture] Pending toolbar skipped:', err.message || err);
+    }
+  }, delayMs);
+
+  return {
+    markResolved() {
+      resolved = true;
+      clearTimeout(timer);
+    },
+    hideIfPending() {
+      const shouldHide = pendingShown;
+      resolved = true;
+      clearTimeout(timer);
+
+      if (shouldHide) {
+        pendingShown = false;
+        onMissed?.(captureId);
+      }
+    },
+    wasPendingShown() {
+      return pendingShown;
+    }
+  };
 }
 
 function hasNonEmptyImage(image) {
@@ -277,5 +414,9 @@ module.exports = {
   resume,
   restoreClipboardSnapshot,
   setOnMouseDown,
-  setShouldIgnoreWindow
+  setShouldIgnoreWindow,
+  _private: {
+    createPendingCaptureSession,
+    isRepeatedMouseUp
+  }
 };
