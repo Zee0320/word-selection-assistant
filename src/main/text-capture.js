@@ -18,9 +18,12 @@ let activeCaptureId = 0;
 let mouseDownX = 0;
 let mouseDownY = 0;
 let lastMouseUpTime = 0;
+let lastMouseUpX = null;
+let lastMouseUpY = null;
 let clickCount = 0;
 
 const DRAG_THRESHOLD = 5;
+const MULTI_CLICK_DISTANCE = 8;
 const CLIPBOARD_WAIT_MS = 150;
 const PENDING_TOOLBAR_DELAY_MS = 20;
 const PENDING_WINDOW_INFO_BUDGET_MS = 10;
@@ -56,12 +59,14 @@ function init(callbackOrHandlers) {
     if (!isEnabled) return;
 
     const now = Date.now();
-    if (now - lastMouseUpTime < 500) {
+    if (isRepeatedMouseUp(e, lastMouseUpX, lastMouseUpY, now, lastMouseUpTime)) {
       clickCount++;
     } else {
       clickCount = 1;
     }
     lastMouseUpTime = now;
+    lastMouseUpX = e.x;
+    lastMouseUpY = e.y;
 
     const dx = Math.abs(e.x - mouseDownX);
     const dy = Math.abs(e.y - mouseDownY);
@@ -172,6 +177,16 @@ function destroy() {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRepeatedMouseUp(e, previousX, previousY, now, previousTime) {
+  if (previousX === null || previousY === null) return false;
+  if (now - previousTime >= 500) return false;
+
+  return (
+    Math.abs(e.x - previousX) <= MULTI_CLICK_DISTANCE &&
+    Math.abs(e.y - previousY) <= MULTI_CLICK_DISTANCE
+  );
 }
 
 function withTimeout(promise, timeoutMs, fallback = null) {
@@ -372,6 +387,7 @@ module.exports = {
   setOnMouseDown,
   setShouldIgnoreWindow,
   _private: {
-    createPendingCaptureSession
+    createPendingCaptureSession,
+    isRepeatedMouseUp
   }
 };

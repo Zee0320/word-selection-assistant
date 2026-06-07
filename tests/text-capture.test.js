@@ -8,7 +8,7 @@ const {
   _private
 } = require('../src/main/text-capture');
 
-const { createPendingCaptureSession } = _private;
+const { createPendingCaptureSession, isRepeatedMouseUp } = _private;
 
 function createImage(empty = false) {
   return {
@@ -131,6 +131,20 @@ test('snapshot ignores empty images and falls back to text restore', () => {
   assert.equal(restored, true);
   assert.equal(fakeClipboard.state.text, 'text');
   assert.equal(fakeClipboard.state.image, null);
+});
+
+test('isRepeatedMouseUp accepts quick clicks at nearly the same point', () => {
+  assert.equal(
+    isRepeatedMouseUp({ x: 104, y: 106 }, 100, 100, 1000, 700),
+    true
+  );
+});
+
+test('isRepeatedMouseUp rejects quick clicks at a different point', () => {
+  assert.equal(
+    isRepeatedMouseUp({ x: 160, y: 140 }, 100, 100, 1000, 700),
+    false
+  );
 });
 
 test('pending capture session shows pending after delay while unresolved', async () => {
