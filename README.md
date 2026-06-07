@@ -1,10 +1,11 @@
 # Word Selection Assistant
 
-Windows global word selection assistant built with Electron. Select text in any application to open a small floating toolbar for translation or AI chat.
+Global word selection assistant built with Electron. On Windows, selecting text in any application opens a small floating toolbar for translation or AI chat. On Linux ARM64/UOS, the first supported flow focuses on the standalone AI chat window and asking AI with clipboard text from the tray.
 
 ## Features
 
 - Global text selection capture on Windows via `@mukea/uiohook-napi`
+- Linux ARM64/UOS deb packaging for the standalone AI chat flow
 - Floating toolbar near the mouse cursor
 - Word and phrase lookup with an offline ECDICT SQLite database
 - Sentence translation through an OpenAI-compatible chat completions API
@@ -15,7 +16,7 @@ Windows global word selection assistant built with Electron. Select text in any 
 
 ## Requirements
 
-- Windows x64
+- Windows x64, or Linux ARM64/aarch64 for the UOS chat-first build
 - Node.js and npm
 - Native build tools required by Electron native modules
 - Local dictionary database at `assets/ecdict.db` for offline dictionary lookup
@@ -49,6 +50,26 @@ npm run build
 
 The Windows portable build output is written to `dist/`.
 
+Windows x64:
+
+```bash
+npm run build:win:x64
+```
+
+Linux ARM64/UOS deb:
+
+```bash
+npm run build:linux:arm64
+```
+
+Build the Linux ARM64 package on a Linux ARM64 environment, such as a UOS ARM64 machine or ARM64 Linux CI. In Linux package terminology the architecture is `arm64`; `uname -m` commonly reports the same hardware family as `aarch64`.
+
+For Linux ARM64/UOS builds, rebuild only the native module needed by the chat-first package:
+
+```bash
+npm run rebuild:linux:arm64
+```
+
 ## API Configuration
 
 Open the settings window from the tray menu and configure:
@@ -75,5 +96,6 @@ tests/          Local test and simulation helpers
 ## Notes
 
 - `node_modules/`, `dist/`, `assets/ecdict.db`, `.agent/`, `.agents/`, `.claude/`, and `openspec/` are ignored.
-- After installing or changing native dependencies, run `npm run rebuild`.
+- After installing or changing native dependencies, run `npm run rebuild`. For UOS/Linux ARM64 packaging, use `npm run rebuild:linux:arm64`.
+- Automatic cross-application text capture is Windows-only in the first Linux ARM64 build. On UOS, use the tray action to ask AI with clipboard text.
 - User settings are stored by `electron-store` in the app user data directory, not in this repository.

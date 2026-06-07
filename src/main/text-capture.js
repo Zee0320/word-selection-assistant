@@ -1,7 +1,7 @@
 // src/main/text-capture.js - global text selection capture
 const { clipboard } = require('electron');
-const { uIOhook, UiohookKey } = require('@mukea/uiohook-napi');
 const windowFocus = require('./window-focus');
+const { isAutomaticTextCaptureSupported } = require('./platform-info');
 const { readSelectedTextViaUIAutomation } = require('./selected-text-reader');
 const { readSelectedTextWithFallback } = require('./selected-text-capture-strategy');
 
@@ -16,9 +16,25 @@ let mouseDownX = 0;
 let mouseDownY = 0;
 let lastMouseUpTime = 0;
 let clickCount = 0;
+let hookApi = null;
+let hookLoadAttempted = false;
 
 const DRAG_THRESHOLD = 5;
 const CLIPBOARD_WAIT_MS = 150;
+
+function getHookApi() {
+  if (!isAutomaticTextCaptureSupported()) return null;
+  if (hookLoadAttempted) return hookApi;
+
+  hookLoadAttempted = true;
+  try {
+    hookApi = require('@mukea/uiohook-napi');
+  } catch (err) {
+    console.warn('[TextCapture] Global hook unavailable:', err.message || err);
+    hookApi = null;
+  }
+  return hookApi;
+}
 
 function setOnMouseDown(cb) {
   onMouseDownCallback = cb;
@@ -30,8 +46,14 @@ function setShouldIgnoreWindow(cb) {
 
 function init(callback) {
   onTextCaptured = callback;
+  const hook = getHookApi();
 
-  uIOhook.on('mousedown', (e) => {
+  if (!hook) {
+    console.log('[TextCapture] Automatic capture unavailable on this platform; use manual AI chat entry');
+    return;
+  }
+
+  hook.uIOhook.on('mousedown', (e) => {
     mouseDownX = e.x;
     mouseDownY = e.y;
     if (onMouseDownCallback) {
@@ -39,7 +61,7 @@ function init(callback) {
     }
   });
 
-  uIOhook.on('mouseup', async (e) => {
+  hook.uIOhook.on('mouseup', async (e) => {
     if (!isEnabled) return;
 
     const now = Date.now();
@@ -99,7 +121,7 @@ function init(callback) {
     }
   });
 
-  uIOhook.start();
+  hook.uIOhook.start();
   console.log('[TextCapture] Started global hook');
 }
 
@@ -118,7 +140,10 @@ function isPaused() {
 }
 
 function destroy() {
-  uIOhook.stop();
+  const hook = getHookApi();
+  if (!hook) return;
+
+  hook.uIOhook.stop();
   console.log('[TextCapture] Stopped');
 }
 
@@ -195,9 +220,14 @@ function restoreClipboardSnapshot(snapshot, clipboardApi = clipboard, logger = c
 }
 
 function copySelectionToClipboard() {
-  uIOhook.keyToggle(UiohookKey.Ctrl, 'down');
-  uIOhook.keyTap(UiohookKey.C);
-  uIOhook.keyToggle(UiohookKey.Ctrl, 'up');
+  const hook = getHookApi();
+  if (!hook) {
+    throw new Error('Global hook unavailable');
+  }
+
+  hook.uIOhook.keyToggle(hook.UiohookKey.Ctrl, 'down');
+  hook.uIOhook.keyTap(hook.UiohookKey.C);
+  hook.uIOhook.keyToggle(hook.UiohookKey.Ctrl, 'up');
 }
 
 async function captureSelectedTextFromClipboard({

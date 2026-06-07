@@ -421,6 +421,15 @@ window.api.onSettingsUpdated((updated) => {
   settings = updated;
 });
 
+window.api.onPrefillChatInput((text) => {
+  const draft = String(text || '').trim();
+  if (!draft || isStreaming) return;
+
+  chatInput.value = draft;
+  resizeInput();
+  focusInput();
+});
+
 load().catch(err => {
   showError(err.message || '加载 AI 对话失败。');
 });

@@ -5,10 +5,12 @@ node_modules/
 .agent/
 .agents/
 .claude/
+.codex/
 openspec/
 
 # Build output
 dist/
+dist-linux-arm64/
 
 # Large local dictionary database
 assets/ecdict.db

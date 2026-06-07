@@ -3,11 +3,27 @@ const path = require('path');
 const { nativeWindowHandleToNumber } = require('./window-focus');
 
 let chatWin = null;
+let pendingDraftText = '';
 
-function openChatWindow() {
+function sendDraftText(text) {
+  const draftText = String(text || '').trim();
+  if (!draftText || !chatWin || chatWin.isDestroyed()) return;
+
+  if (chatWin.webContents.isLoading()) {
+    pendingDraftText = draftText;
+    return;
+  }
+
+  chatWin.webContents.send('prefill-chat-input', draftText);
+}
+
+function openChatWindow(options = {}) {
+  const draftText = typeof options === 'string' ? options : options.draftText;
+
   if (chatWin && !chatWin.isDestroyed()) {
     if (chatWin.isMinimized()) chatWin.restore();
     chatWin.focus();
+    sendDraftText(draftText);
     return chatWin;
   }
 
@@ -29,6 +45,14 @@ function openChatWindow() {
 
   chatWin.loadFile(path.join(__dirname, '../renderer/chat/index.html'));
   chatWin.setMenuBarVisibility(false);
+  if (draftText) {
+    pendingDraftText = String(draftText);
+  }
+  chatWin.webContents.once('did-finish-load', () => {
+    const draft = pendingDraftText;
+    pendingDraftText = '';
+    sendDraftText(draft);
+  });
   chatWin.once('ready-to-show', () => {
     if (chatWin && !chatWin.isDestroyed()) chatWin.show();
   });

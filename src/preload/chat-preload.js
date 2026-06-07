@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   onChatChunk: (cb) => ipcRenderer.on('standalone-chat-stream-chunk', (event, payload) => cb(payload)),
   onChatDone: (cb) => ipcRenderer.on('standalone-chat-stream-done', (event, payload) => cb(payload)),
   onChatError: (cb) => ipcRenderer.on('standalone-chat-stream-error', (event, payload) => cb(payload)),
+  onPrefillChatInput: (cb) => ipcRenderer.on('prefill-chat-input', (event, text) => cb(text)),
   onSettingsUpdated: (cb) => ipcRenderer.on('settings-updated', (event, settings) => cb(settings)),
   openSettings: () => ipcRenderer.send('open-settings'),
   parseMarkdown: (text) => ipcRenderer.sendSync('parse-markdown', text),

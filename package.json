@@ -7,9 +7,13 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "test": "node --test tests/*.test.js",
-    "build": "electron-builder --win --x64",
+    "build": "npm run build:win:x64",
+    "build:win:x64": "electron-builder --win --x64",
+    "build:linux:arm64": "electron-builder --linux deb --arm64 -c.npmRebuild=false",
     "pack": "electron-builder --dir",
-    "rebuild": "node node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3 -w @mukea/uiohook-napi"
+    "rebuild": "npm run rebuild:win:x64",
+    "rebuild:win:x64": "node node_modules/@electron/rebuild/lib/cli.js -f -o better-sqlite3,@mukea/uiohook-napi",
+    "rebuild:linux:arm64": "node node_modules/@electron/rebuild/lib/cli.js -f -o better-sqlite3"
   },
   "build": {
     "appId": "com.wordassistant.app",
@@ -25,14 +29,43 @@
         }
       ],
       "icon": "assets/icon.ico",
-      "sign": null
+      "sign": null,
+      "extraResources": [
+        {
+          "from": "assets/ecdict.db",
+          "to": "ecdict.db"
+        }
+      ]
     },
-    "extraResources": [
-      {
-        "from": "assets/ecdict.db",
-        "to": "ecdict.db"
-      }
-    ],
+    "linux": {
+      "target": [
+        {
+          "target": "deb",
+          "arch": ["arm64"]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Utility",
+      "maintainer": "Zee0320 <Zee0320@users.noreply.github.com>"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libgbm1",
+        "libasound2"
+      ],
+      "recommends": [
+        "libappindicator3-1"
+      ]
+    },
     "files": [
       "src/**/*",
       "assets/**/*",

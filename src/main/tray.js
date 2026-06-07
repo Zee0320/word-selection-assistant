@@ -1,9 +1,10 @@
 // src/main/tray.js - system tray management
-const { Tray, Menu, nativeImage, app } = require('electron');
+const { Tray, Menu, nativeImage, app, clipboard } = require('electron');
 const path = require('path');
 const textCapture = require('./text-capture');
 const settingsWindow = require('./settings-window');
 const standaloneChatWindow = require('./standalone-chat-window');
+const { buildClipboardAiPrompt } = require('./selected-context');
 
 let tray = null;
 
@@ -25,6 +26,13 @@ function buildContextMenu() {
     {
       label: 'AI Chat',
       click: () => standaloneChatWindow.openChatWindow()
+    },
+    {
+      label: 'Ask AI with clipboard text',
+      click: () => {
+        const prompt = buildClipboardAiPrompt(clipboard.readText());
+        standaloneChatWindow.openChatWindow({ draftText: prompt });
+      }
     },
     {
       label: 'Settings',

@@ -19,31 +19,7 @@ const {
 } = require('./store');
 const { lookupWord } = require('./dictionary');
 const { classifyText, isChinese, translateSentence, aiChat } = require('./ai-client');
-
-// 简单的 Markdown 到 HTML 转换（不需要外部依赖）
-function simpleMarkdownToHtml(text) {
-  if (!text) return '';
-
-  let html = text
-    // 转义 HTML 特殊字符
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    // 代码块
-    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-    // 行内代码
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // 粗体
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    // 斜体
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    // 段落（双换行）
-    .replace(/\n\n/g, '</p><p>')
-    // 单换行转为 <br>
-    .replace(/\n/g, '<br>');
-
-  return `<p>${html}</p>`;
-}
+const { renderMarkdownToHtml } = require('./markdown-renderer');
 
 // 单实例锁
 const gotLock = app.requestSingleInstanceLock();
@@ -264,7 +240,7 @@ ipcMain.on('notify-interaction', () => {
 
 // Markdown 解析（同步，供 preload 调用）
 ipcMain.on('parse-markdown', (event, text) => {
-  event.returnValue = simpleMarkdownToHtml(text);
+  event.returnValue = renderMarkdownToHtml(text);
 });
 
 // 测试 API 连通性
