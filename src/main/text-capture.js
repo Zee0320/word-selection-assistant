@@ -112,16 +112,24 @@ function init(callbackOrHandlers) {
       }
       return cachedActiveWindowInfo;
     };
-    const pendingSession = createPendingCaptureSession({
-      captureId,
-      mouseX: e.x,
-      mouseY: e.y,
-      getActiveWindowInfo,
-      shouldIgnoreWindow,
-      isCurrentCapture,
-      onPending: onCapturePending,
-      onMissed: onCaptureMissed
-    });
+    // Only drags get a pending toolbar. Double-clicks often activate non-text UI
+    // such as Explorer folders, so wait until text is actually captured.
+    let pendingSession = {
+      markResolved() {},
+      hideIfPending() {}
+    };
+    if (isDrag) {
+      pendingSession = createPendingCaptureSession({
+        captureId,
+        mouseX: e.x,
+        mouseY: e.y,
+        getActiveWindowInfo,
+        shouldIgnoreWindow,
+        isCurrentCapture,
+        onPending: onCapturePending,
+        onMissed: onCaptureMissed
+      });
+    }
 
     // Let selection settle before reading, especially for double-click selection.
     await sleep(SELECTION_SETTLE_MS);

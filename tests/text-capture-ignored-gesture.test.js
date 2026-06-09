@@ -175,3 +175,61 @@ test('terminal capture allows clipboard fallback when UI Automation returns no t
     restore();
   }
 });
+
+test('double-click with no selected text does not show pending toolbar', async () => {
+  const { textCapture, handlers, restore } = loadTextCaptureWithFakes({
+    readSelectedText: async () => ''
+  });
+  const pendingCalls = [];
+  const capturedTexts = [];
+  const missedCaptures = [];
+
+  try {
+    textCapture.init({
+      onTextCaptured: text => capturedTexts.push(text),
+      onCapturePending: (...args) => pendingCalls.push(args),
+      onCaptureMissed: captureId => missedCaptures.push(captureId)
+    });
+    textCapture.setShouldIgnoreWindow(() => false);
+    textCapture.setOnMouseDown(() => false);
+
+    handlers.mousedown({ x: 50, y: 50 });
+    await handlers.mouseup({ x: 50, y: 50 });
+    handlers.mousedown({ x: 52, y: 52 });
+    await handlers.mouseup({ x: 52, y: 52 });
+
+    assert.deepEqual(pendingCalls, []);
+    assert.deepEqual(capturedTexts, []);
+    assert.deepEqual(missedCaptures, []);
+  } finally {
+    restore();
+  }
+});
+
+test('double-click with selected text captures text without pending toolbar', async () => {
+  const { textCapture, handlers, restore } = loadTextCaptureWithFakes({
+    readSelectedText: async () => 'selected word'
+  });
+  const pendingCalls = [];
+  const capturedTexts = [];
+
+  try {
+    textCapture.init({
+      onTextCaptured: text => capturedTexts.push(text),
+      onCapturePending: (...args) => pendingCalls.push(args),
+      onCaptureMissed: () => {}
+    });
+    textCapture.setShouldIgnoreWindow(() => false);
+    textCapture.setOnMouseDown(() => false);
+
+    handlers.mousedown({ x: 80, y: 80 });
+    await handlers.mouseup({ x: 80, y: 80 });
+    handlers.mousedown({ x: 82, y: 82 });
+    await handlers.mouseup({ x: 82, y: 82 });
+
+    assert.deepEqual(pendingCalls, []);
+    assert.deepEqual(capturedTexts, ['selected word']);
+  } finally {
+    restore();
+  }
+});
