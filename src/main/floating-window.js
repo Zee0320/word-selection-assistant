@@ -218,11 +218,20 @@ function requestHide(mouseX = null, mouseY = null) {
     console.log('[requestHide] Window is pinned, ignoring');
     return isInsideWindow;
   }
-  if (isPendingToolbarVisible) {
-    console.log('[requestHide] Pending toolbar is visible, keeping visible');
-    markPendingInteraction();
+  if (isPendingToolbarVisible && isInsideWindow) {
+    console.log('[requestHide] Pending toolbar inside click, keeping visible');
     extendGrace();
     return true;
+  }
+  if (isPendingToolbarVisible) {
+    console.log('[requestHide] Pending toolbar outside click, hiding window');
+    if (pendingHideTimer) clearTimeout(pendingHideTimer);
+    pendingHideTimer = setTimeout(() => {
+      console.log('[requestHide] Timer fired, hiding window');
+      pendingHideTimer = null;
+      hideWindow();
+    }, 100);
+    return false;
   }
   if (isInsideWindow) {
     console.log('[requestHide] Click inside floating window, keeping visible');

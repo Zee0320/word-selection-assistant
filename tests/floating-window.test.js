@@ -6,7 +6,7 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function loadFloatingWindowWithFakes() {
+function loadFloatingWindowWithFakes({ hitTestResult = false } = {}) {
   const floatingWindowPath = require.resolve('../src/main/floating-window');
   delete require.cache[floatingWindowPath];
 
@@ -75,7 +75,7 @@ function loadFloatingWindowWithFakes() {
       };
     }
     if (parent?.filename === floatingWindowPath && request === './floating-window-hit-test') {
-      return { isPhysicalPointInsideWindow: () => false };
+      return { isPhysicalPointInsideWindow: () => hitTestResult };
     }
     return originalLoad.call(this, request, parent, isMain);
   };
@@ -115,7 +115,7 @@ test('resolved toolbar enables interaction after passive show delay', async () =
 });
 
 test('pending toolbar click reports the mouse gesture as consumed', () => {
-  const { floatingWindow } = loadFloatingWindowWithFakes();
+  const { floatingWindow } = loadFloatingWindowWithFakes({ hitTestResult: true });
 
   try {
     floatingWindow.showPendingWindow(100, 100, 123, 1);
@@ -126,8 +126,23 @@ test('pending toolbar click reports the mouse gesture as consumed', () => {
   }
 });
 
+test('pending toolbar outside click hides without consuming the mouse gesture', async () => {
+  const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes({ hitTestResult: false });
+
+  try {
+    floatingWindow.showPendingWindow(100, 100, 123, 1);
+
+    assert.equal(floatingWindow.requestHide(500, 500), false);
+    await delay(150);
+
+    assert.equal(createdWindows[0].isVisible(), false);
+  } finally {
+    floatingWindow.hideWindow();
+  }
+});
+
 test('pending toolbar interaction restores the original foreground window', () => {
-  const { floatingWindow, restoredHandles } = loadFloatingWindowWithFakes();
+  const { floatingWindow, restoredHandles } = loadFloatingWindowWithFakes({ hitTestResult: true });
 
   try {
     floatingWindow.showPendingWindow(100, 100, 123, 1);
