@@ -8,9 +8,34 @@ const { buildClipboardAiPrompt } = require('./selected-context');
 
 let tray = null;
 
+function buildCaptureStatusLabel(status) {
+  if (status.supported) {
+    if (status.backend === 'uos-x11') {
+      return 'Capture: UOS ARM64 X11 ready';
+    }
+    if (status.backend === 'windows-uiohook') {
+      return 'Capture: Windows ready';
+    }
+  }
+  if (status.reason === 'wayland-unsupported') {
+    return 'Capture: Wayland unsupported, use manual AI Chat';
+  }
+  if (status.reason === 'missing-dependencies') {
+    const missing = status.missing || [];
+    return `Capture: missing ${missing.join(', ')}`;
+  }
+  return 'Capture: manual AI Chat only';
+}
+
 function buildContextMenu() {
   const paused = textCapture.isPaused();
+  const captureStatus = textCapture.getCaptureStatus();
   return Menu.buildFromTemplate([
+    {
+      label: buildCaptureStatusLabel(captureStatus),
+      enabled: false
+    },
+    { type: 'separator' },
     {
       label: paused ? 'Resume capture' : 'Pause capture',
       click: () => {
@@ -68,4 +93,8 @@ function destroy() {
   }
 }
 
-module.exports = { init, destroy };
+module.exports = {
+  init,
+  destroy,
+  _private: { buildCaptureStatusLabel }
+};

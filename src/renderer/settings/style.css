@@ -424,3 +424,34 @@ footer {
 .hidden {
   display: none !important;
 }
+
+/* ── Capture Status Card ── */
+.capture-status-card {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.capture-status-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.capture-status-text {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.capture-status-text.capture-status-ok {
+  color: var(--success);
+}
+
+.capture-status-text.capture-status-warn {
+  color: #f0a020;
+}
+
+.capture-status-text.capture-status-error {
+  color: var(--error);
+}

@@ -255,3 +255,6 @@ ipcMain.handle('test-connection', async (event, settings, purpose) => {
   const { testConnection } = require('./ai-client');
   return await testConnection(settings, purpose);
 });
+
+// 获取划词捕获状态
+ipcMain.handle('get-capture-status', () => textCapture.getCaptureStatus());

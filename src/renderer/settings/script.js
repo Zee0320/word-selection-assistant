@@ -27,6 +27,7 @@ const togglePw = document.getElementById('toggle-pw');
 const pwEye = document.getElementById('pw-eye');
 const gatewaySettings = document.getElementById('gateway-settings');
 const connectionModeInputs = Array.from(document.querySelectorAll('input[name="connection-mode"]'));
+const captureStatusText = document.getElementById('capture-status-text');
 
 let saveTimer = null;
 let isSyncingHeaders = false;
@@ -81,7 +82,39 @@ async function loadSettings() {
   validateApiConfig(settings);
 }
 
+function formatCaptureStatus(status) {
+  if (status.supported) {
+    if (status.backend === 'uos-x11') {
+      return '✅ UOS ARM64 X11 划词捕获已就绪';
+    }
+    if (status.backend === 'windows-uiohook') {
+      return '✅ Windows 划词捕获已就绪';
+    }
+  }
+  if (status.reason === 'wayland-unsupported') {
+    return '⚠️ Wayland 环境不支持自动捕获，请使用 AI 对话窗口手动输入';
+  }
+  if (status.reason === 'missing-dependencies') {
+    const missing = status.missing || [];
+    return `⚠️ 缺少依赖: ${missing.join(', ')}，请安装后重试`;
+  }
+  return 'ℹ️ 当前环境不支持自动划词，请使用 AI 对话窗口';
+}
+
+async function loadCaptureStatus() {
+  try {
+    const status = await window.api.getCaptureStatus();
+    captureStatusText.textContent = formatCaptureStatus(status);
+    captureStatusText.classList.toggle('capture-status-ok', status.supported);
+    captureStatusText.classList.toggle('capture-status-warn', !status.supported);
+  } catch (err) {
+    captureStatusText.textContent = '❌ 获取状态失败: ' + (err.message || err);
+    captureStatusText.classList.add('capture-status-error');
+  }
+}
+
 loadSettings();
+loadCaptureStatus();
 
 function scheduleAutoSave() {
   clearTimeout(saveTimer);
