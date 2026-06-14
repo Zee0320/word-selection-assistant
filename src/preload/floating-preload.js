@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('api', {
   onAiChatDone: (cb) => ipcRenderer.on('ai-chat-stream-done', () => cb()),
   onAiChatError: (cb) => ipcRenderer.on('ai-chat-stream-error', (e, err) => cb(err)),
 
+  // 浮窗会话持久化
+  createFloatingConversation: (payload) => ipcRenderer.invoke('floating-chat-create-conversation', payload),
+  saveFloatingConversation: (conversation) => ipcRenderer.invoke('floating-chat-save-conversation', conversation),
+
   // 窗口控制
   resizeWindow: (width, height) => ipcRenderer.send('resize-window', { width, height }),
   collapseWindow: () => ipcRenderer.send('collapse-window'),
