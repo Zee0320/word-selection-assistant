@@ -50,6 +50,7 @@ function parseOsRelease(content) {
 
 /**
  * Check if the current system is a UOS release
+ * Note: Scope is UOS only. Deepin is NOT accepted as UOS.
  * @param {string} osReleasePath - Path to os-release file
  * @param {Object} fsModule - File system module (for testing)
  * @returns {boolean}
@@ -59,17 +60,19 @@ function isUosRelease(osReleasePath = '/etc/os-release', fsModule = fs) {
     const content = fsModule.readFileSync(osReleasePath, 'utf-8');
     const parsed = parseOsRelease(content);
 
-    // Check for UOS identifiers
+    // Check for UOS identifiers (NOT Deepin - scope is UOS ARM64 only)
     const id = (parsed.ID || '').toLowerCase();
     const name = (parsed.NAME || '').toLowerCase();
     const prettyName = (parsed.PRETTY_NAME || '').toLowerCase();
 
-    return id.includes('uos') ||
-           id.includes('deepin') ||
+    // Accept only UOS/UnionTech, NOT Deepin
+    return id === 'uos' ||
+           id === 'uniontech' ||
+           id === 'uniontechos' ||
+           name.includes('uniontech os') ||
+           prettyName.includes('uniontech os') ||
            name.includes('uos') ||
-           name.includes('deepin') ||
-           prettyName.includes('uos') ||
-           prettyName.includes('deepin');
+           prettyName.includes('uos');
   } catch {
     return false;
   }
@@ -116,20 +119,21 @@ function getTextCaptureStatus(options = {}) {
 
   // Linux ARM64: Check for UOS X11 support
   if (platformInfo.isLinuxArm64) {
-    // Check if running Wayland
-    const sessionType = env.XDG_SESSION_TYPE || '';
-    if (sessionType.toLowerCase() === 'wayland') {
-      return { supported: false, reason: 'wayland-unsupported' };
-    }
-
-    // Check if UOS release
+    // Check if UOS release first (NOT Deepin)
     if (!isUosRelease('/etc/os-release', fsModule)) {
       return { supported: false, reason: 'not-uos-arm64' };
     }
 
-    // Check required dependencies
+    // Check for explicit X11 session (do NOT default to X11)
+    const sessionType = (env.XDG_SESSION_TYPE || '').toLowerCase();
+    if (sessionType !== 'x11') {
+      // Reject Wayland AND unknown/missing session type
+      return { supported: false, reason: sessionType === 'wayland' ? 'wayland-unsupported' : 'x11-session-not-confirmed' };
+    }
+
+    // Check required dependencies: xinput, xdotool, xclip
     const missingDeps = [];
-    const requiredCommands = ['xsel', 'xdotool'];
+    const requiredCommands = ['xinput', 'xdotool', 'xclip'];
 
     for (const cmd of requiredCommands) {
       if (!commandExists(cmd, execFn)) {

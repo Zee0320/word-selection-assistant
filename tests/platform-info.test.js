@@ -66,7 +66,7 @@ NAME="UOS"`;
   assert.equal(Object.keys(result).length, 2);
 });
 
-// isUosRelease tests
+// isUosRelease tests - Scope is UOS only, NOT Deepin
 test('isUosRelease returns true for UOS ID', () => {
   const mockFs = {
     readFileSync: () => 'ID=uos\nNAME="UnionTech OS"'
@@ -74,9 +74,16 @@ test('isUosRelease returns true for UOS ID', () => {
   assert.equal(isUosRelease('/etc/os-release', mockFs), true);
 });
 
-test('isUosRelease returns true for Deepin ID', () => {
+test('isUosRelease returns true for UnionTech ID', () => {
   const mockFs = {
-    readFileSync: () => 'ID=deepin\nNAME="Deepin"'
+    readFileSync: () => 'ID=uniontech\nNAME="UnionTech OS"'
+  };
+  assert.equal(isUosRelease('/etc/os-release', mockFs), true);
+});
+
+test('isUosRelease returns true for UnionTechOS ID', () => {
+  const mockFs = {
+    readFileSync: () => 'ID=uniontechos\nNAME="UnionTech OS"'
   };
   assert.equal(isUosRelease('/etc/os-release', mockFs), true);
 });
@@ -88,11 +95,25 @@ test('isUosRelease returns true for UOS in NAME', () => {
   assert.equal(isUosRelease('/etc/os-release', mockFs), true);
 });
 
-test('isUosRelease returns true for Deepin in PRETTY_NAME', () => {
+test('isUosRelease returns true for UnionTech OS in PRETTY_NAME', () => {
+  const mockFs = {
+    readFileSync: () => 'ID=custom\nPRETTY_NAME="UnionTech OS Desktop"'
+  };
+  assert.equal(isUosRelease('/etc/os-release', mockFs), true);
+});
+
+test('isUosRelease returns false for Deepin (scope is UOS only)', () => {
+  const mockFs = {
+    readFileSync: () => 'ID=deepin\nNAME="Deepin"'
+  };
+  assert.equal(isUosRelease('/etc/os-release', mockFs), false);
+});
+
+test('isUosRelease returns false for Deepin in PRETTY_NAME', () => {
   const mockFs = {
     readFileSync: () => 'ID=custom\nPRETTY_NAME="Deepin Linux"'
   };
-  assert.equal(isUosRelease('/etc/os-release', mockFs), true);
+  assert.equal(isUosRelease('/etc/os-release', mockFs), false);
 });
 
 test('isUosRelease returns false for non-UOS distro', () => {
@@ -112,7 +133,7 @@ test('isUosRelease returns false when file does not exist', () => {
 // commandExists tests
 test('commandExists returns true when command is found', () => {
   const mockExec = () => {}; // Does not throw
-  assert.equal(commandExists('xsel', mockExec), true);
+  assert.equal(commandExists('xclip', mockExec), true);
 });
 
 test('commandExists returns false when command is not found', () => {
@@ -155,7 +176,7 @@ test('getTextCaptureStatus rejects non-UOS Linux ARM64 with reason not-uos-arm64
   const result = getTextCaptureStatus({
     runtime: { platform: 'linux', arch: 'arm64' },
     fsModule: mockFs,
-    env: {}
+    env: { XDG_SESSION_TYPE: 'x11' }
   });
 
   assert.deepEqual(result, { supported: false, reason: 'not-uos-arm64' });
@@ -170,13 +191,14 @@ test('getTextCaptureStatus rejects non-ARM64 Linux with reason not-uos-arm64', (
   assert.deepEqual(result, { supported: false, reason: 'not-uos-arm64' });
 });
 
-test('getTextCaptureStatus reports missing dependencies by name', () => {
+test('getTextCaptureStatus reports missing dependencies with correct commands (xinput, xdotool, xclip)', () => {
   const mockFs = {
     readFileSync: () => 'ID=uos\nNAME="UOS"'
   };
   const mockExec = (cmd) => {
-    if (cmd.includes('xsel')) throw new Error('Not found');
-    // xdotool exists
+    if (cmd.includes('xdotool')) throw new Error('Not found');
+    if (cmd.includes('xclip')) throw new Error('Not found');
+    // xinput exists
   };
 
   const result = getTextCaptureStatus({
@@ -188,10 +210,10 @@ test('getTextCaptureStatus reports missing dependencies by name', () => {
 
   assert.equal(result.supported, false);
   assert.equal(result.reason, 'missing-dependencies');
-  assert.deepEqual(result.missing, ['xsel']);
+  assert.deepEqual(result.missing.sort(), ['xdotool', 'xclip'].sort());
 });
 
-test('getTextCaptureStatus reports multiple missing dependencies', () => {
+test('getTextCaptureStatus reports all missing dependencies', () => {
   const mockFs = {
     readFileSync: () => 'ID=uos\nNAME="UOS"'
   };
@@ -206,7 +228,7 @@ test('getTextCaptureStatus reports multiple missing dependencies', () => {
 
   assert.equal(result.supported, false);
   assert.equal(result.reason, 'missing-dependencies');
-  assert.deepEqual(result.missing.sort(), ['xsel', 'xdotool'].sort());
+  assert.deepEqual(result.missing.sort(), ['xinput', 'xdotool', 'xclip'].sort());
 });
 
 test('getTextCaptureStatus returns uos-x11 for valid UOS ARM64 X11 setup', () => {
@@ -225,9 +247,9 @@ test('getTextCaptureStatus returns uos-x11 for valid UOS ARM64 X11 setup', () =>
   assert.deepEqual(result, { supported: true, backend: 'uos-x11' });
 });
 
-test('getTextCaptureStatus works without XDG_SESSION_TYPE (defaults to X11)', () => {
+test('getTextCaptureStatus rejects missing XDG_SESSION_TYPE (does not default to X11)', () => {
   const mockFs = {
-    readFileSync: () => 'ID=deepin\nNAME="Deepin"'
+    readFileSync: () => 'ID=uos\nNAME="UOS"'
   };
   const mockExec = () => {};
 
@@ -238,7 +260,25 @@ test('getTextCaptureStatus works without XDG_SESSION_TYPE (defaults to X11)', ()
     env: {} // No XDG_SESSION_TYPE
   });
 
-  assert.deepEqual(result, { supported: true, backend: 'uos-x11' });
+  assert.equal(result.supported, false);
+  assert.equal(result.reason, 'x11-session-not-confirmed');
+});
+
+test('getTextCaptureStatus rejects Deepin (scope is UOS only)', () => {
+  const mockFs = {
+    readFileSync: () => 'ID=deepin\nNAME="Deepin"'
+  };
+  const mockExec = () => {};
+
+  const result = getTextCaptureStatus({
+    runtime: { platform: 'linux', arch: 'arm64' },
+    execFn: mockExec,
+    fsModule: mockFs,
+    env: { XDG_SESSION_TYPE: 'x11' }
+  });
+
+  assert.equal(result.supported, false);
+  assert.equal(result.reason, 'not-uos-arm64');
 });
 
 test('getTextCaptureStatus returns unsupported-platform for other platforms', () => {
