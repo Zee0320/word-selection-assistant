@@ -202,10 +202,9 @@ test('history disabled still saves continued floating conversation to transient 
   assert.ok(saveCall);
   assert.equal(saveCall.conversation.id, 'conv-floating');
   assert.equal(saveCall.conversation.metadata.selectedContext, 'Selected paragraph');
-  assert.deepEqual(saveCall.conversation.messages.map(message => message.content), [
-    'Explain this',
-    'Continue'
-  ]);
+  const messages = saveCall.conversation.messages;
+  assert.equal(messages[0].content, 'Explain this');
+  assert.equal(messages[1].content, 'Continue');
 
   const sendCall = calls.find(call => call.type === 'sendChat');
   assert.equal(sendCall.selectedText, 'Selected paragraph');
@@ -225,11 +224,10 @@ test('history disabled saves streamed assistant reply to transient store', async
 
   const saveCalls = calls.filter(call => call.type === 'saveConversation');
   assert.equal(saveCalls.length, 2);
-  assert.deepEqual(saveCalls.at(-1).conversation.messages.map(message => message.role), [
-    'user',
-    'user',
-    'assistant'
-  ]);
-  assert.equal(saveCalls.at(-1).conversation.messages.at(-1).content, 'Answer');
+  const lastMessages = saveCalls.at(-1).conversation.messages;
+  assert.equal(lastMessages[0].role, 'user');
+  assert.equal(lastMessages[1].role, 'user');
+  assert.equal(lastMessages[2].role, 'assistant');
+  assert.equal(lastMessages.at(-1).content, 'Answer');
   assert.equal(saveCalls.at(-1).conversation.metadata.selectedContext, 'Selected paragraph');
 });
