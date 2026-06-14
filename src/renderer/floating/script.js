@@ -6,6 +6,7 @@ let chatMessages = [];
 let chatContext = '';
 let activeChatContext = '';
 let isChatContextFrozen = false;
+let isChatContextExpanded = false;
 let isStreaming = false;
 let isPinned = false;
 let isTextPending = false;
@@ -71,6 +72,9 @@ const translationError = document.getElementById('translation-error');
 const chatContextText = document.getElementById('chat-context-text');
 const chatContextClear = document.getElementById('chat-context-clear');
 const chatContextLock = document.getElementById('chat-context-lock');
+const chatContextCard = document.getElementById('chat-context');
+const chatContextToggle = document.getElementById('chat-context-toggle');
+const chatContextStatus = document.getElementById('chat-context-status');
 const chatMessages$ = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const chatSendBtn = document.getElementById('chat-send-btn');
@@ -334,8 +338,15 @@ chatContextClear.addEventListener('click', (e) => {
   if (isChatContextFrozen) return;
   chatContext = '';
   chatContextText.value = '';
+  setChatContextExpanded(false);
   updateChatContextUI();
   chatContextText.focus();
+});
+
+chatContextToggle.addEventListener('click', (e) => {
+  window.api.notifyInteraction();
+  e.stopPropagation();
+  setChatContextExpanded(!isChatContextExpanded);
 });
 
 function sendChatMessage() {
@@ -349,9 +360,10 @@ function sendChatMessage() {
 
   chatInput.value = '';
   if (!isChatContextFrozen) {
-    activeChatContext = chatContextText.value.trim();
+    activeChatContext = normalizeChatContext(chatContextText.value);
     chatContext = activeChatContext;
     isChatContextFrozen = true;
+    setChatContextExpanded(false);
     updateChatContextUI();
   }
 
@@ -497,25 +509,51 @@ function resetChatState() {
   chatContext = currentText;
   activeChatContext = '';
   isChatContextFrozen = false;
+  isChatContextExpanded = false;
   updateChatContextUI();
   chatInput.value = '';
   isStreaming = false;
   chatSendBtn.disabled = false;
 }
 
+function normalizeChatContext(text) {
+  return String(text || '').trim();
+}
+
+function setChatContextExpanded(expanded) {
+  isChatContextExpanded = Boolean(expanded);
+  updateChatContextUI();
+}
+
+function getDisplayedChatContext() {
+  return isChatContextFrozen ? activeChatContext : chatContext;
+}
+
 function updateChatContextUI() {
-  const displayContext = isChatContextFrozen ? activeChatContext : chatContext;
+  const displayContext = getDisplayedChatContext();
   if (chatContextText.value !== displayContext) {
     chatContextText.value = displayContext;
   }
 
-  const isEmpty = displayContext.trim() === '';
+  const isEmpty = normalizeChatContext(displayContext) === '';
   chatContextText.readOnly = isChatContextFrozen;
   chatContextText.placeholder = isEmpty ? 'Normal chat - no selected text context' : '';
-  chatContextClear.classList.toggle('hidden', isChatContextFrozen);
+
+  chatContextCard.classList.toggle('context-empty', isEmpty);
+  chatContextCard.classList.toggle('context-frozen', isChatContextFrozen);
+  chatContextCard.classList.toggle('context-expanded', isChatContextExpanded);
+  chatContextCard.classList.toggle('context-collapsed', !isChatContextExpanded);
+
+  chatContextClear.classList.toggle('hidden', isChatContextFrozen || isEmpty);
   chatContextLock.classList.toggle('hidden', !isChatContextFrozen);
-  document.getElementById('chat-context').classList.toggle('context-empty', isEmpty);
-  document.getElementById('chat-context').classList.toggle('context-frozen', isChatContextFrozen);
+  chatContextStatus.classList.toggle('hidden', !isEmpty);
+
+  chatContextToggle.disabled = isChatContextFrozen || isEmpty;
+  chatContextToggle.classList.toggle('hidden', isEmpty);
+  chatContextToggle.textContent = isChatContextExpanded ? '⌃' : '⌄';
+  chatContextToggle.title = isChatContextExpanded ? 'Collapse selected text' : 'Expand selected text';
+  chatContextToggle.setAttribute('aria-label', chatContextToggle.title);
+  chatContextToggle.setAttribute('aria-expanded', String(isChatContextExpanded));
 }
 
 function getActivePanel() {

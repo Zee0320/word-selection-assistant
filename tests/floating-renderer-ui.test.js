@@ -61,8 +61,13 @@ function createElement(id, initialClass = '') {
       listeners.get(type).push(listener);
     },
     dispatchEvent(type, event = {}) {
+      const nextEvent = {
+        stopPropagation() {},
+        preventDefault() {},
+        ...event
+      };
       for (const listener of listeners.get(type) || []) {
-        listener(event);
+        listener(nextEvent);
       }
     },
     appendChild(child) {
@@ -73,7 +78,8 @@ function createElement(id, initialClass = '') {
     remove() {},
     closest() {
       return null;
-    }
+    },
+    focus() {}
   };
 }
 
@@ -96,6 +102,10 @@ function createRendererHarness() {
     'sentence-loading',
     'translation-error',
     'chat-context',
+    'chat-context-header',
+    'chat-context-label',
+    'chat-context-toggle',
+    'chat-context-status',
     'chat-context-text',
     'chat-context-clear',
     'chat-context-lock',
@@ -151,7 +161,9 @@ function createRendererHarness() {
     classifyText: async () => ({ type: 'word', isChinese: false }),
     translateWord: async () => null,
     translateSentence() {},
-    aiChatSend() {},
+    aiChatSend(selectedText, messages) {
+      calls.push({ type: 'aiChatSend', selectedText, messages });
+    },
     parseMarkdown(text) { return text; }
   };
 
@@ -204,4 +216,129 @@ test('final show-toolbar after pending enables translate and chat actions', () =
   assert.equal(elements['btn-chat'].disabled, false);
   assert.equal(elements['btn-chat'].classList.contains('toolbar-btn-disabled'), false);
   assert.equal(elements['btn-chat'].getAttribute('aria-disabled'), 'false');
+});
+
+test('chat context card starts collapsed with selected text', () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'First line\nSecond line\nThird line',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+
+  assert.equal(elements['chat-context-text'].value, 'First line\nSecond line\nThird line');
+  assert.equal(elements['chat-context'].classList.contains('context-collapsed'), true);
+  assert.equal(elements['chat-context'].classList.contains('context-expanded'), false);
+  assert.equal(elements['chat-context-text'].readOnly, false);
+  assert.equal(elements['chat-context-clear'].classList.contains('hidden'), false);
+  assert.equal(elements['chat-context-lock'].classList.contains('hidden'), true);
+});
+
+test('chat context card toggles expanded state before first send', () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected paragraph',
+    settings: { translationEnabled: true, aiChatEnabled: true },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+
+  elements['chat-context-toggle'].dispatchEvent('click');
+  assert.equal(elements['chat-context'].classList.contains('context-expanded'), true);
+  assert.equal(elements['chat-context-toggle'].getAttribute('aria-expanded'), 'true');
+
+  elements['chat-context-toggle'].dispatchEvent('click');
+  assert.equal(elements['chat-context'].classList.contains('context-collapsed'), true);
+  assert.equal(elements['chat-context-toggle'].getAttribute('aria-expanded'), 'false');
+});
+
+test('chat context can be cleared before first send', () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected paragraph',
+    settings: { translationEnabled: true, aiChatEnabled: true },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-context-clear'].dispatchEvent('click');
+
+  assert.equal(elements['chat-context-text'].value, '');
+  assert.equal(elements['chat-context'].classList.contains('context-empty'), true);
+  assert.equal(elements['chat-context-text'].placeholder, 'Normal chat - no selected text context');
+});
+
+test('first chat send freezes selected context and sends that context to main process', () => {
+  const { callbacks, calls, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Original selected text',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-context-text'].value = 'Edited selected text';
+  elements['chat-context-text'].dispatchEvent('input');
+  elements['chat-input'].value = 'Explain this';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  const sendCall = calls.find(call => call.type === 'aiChatSend');
+  assert.equal(sendCall.selectedText, 'Edited selected text');
+  assert.equal(sendCall.messages.at(-1).content, 'Explain this');
+  assert.equal(elements['chat-context-text'].readOnly, true);
+  assert.equal(elements['chat-context-clear'].classList.contains('hidden'), true);
+  assert.equal(elements['chat-context-lock'].classList.contains('hidden'), false);
+});
+
+test('new selected text resets context card after a frozen chat', () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'First selection',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-input'].value = 'Question';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  callbacks.showToolbar({
+    text: 'Second selection',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+
+  assert.equal(elements['chat-context-text'].value, 'Second selection');
+  assert.equal(elements['chat-context-text'].readOnly, false);
+  assert.equal(elements['chat-context-clear'].classList.contains('hidden'), false);
+  assert.equal(elements['chat-context-lock'].classList.contains('hidden'), true);
+  assert.equal(elements['chat-context'].classList.contains('context-collapsed'), true);
 });
