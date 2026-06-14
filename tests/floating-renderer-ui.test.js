@@ -555,7 +555,7 @@ test('chat context can be cleared before first send', () => {
   assert.equal(elements['chat-context-text'].placeholder, 'Normal chat - no selected text context');
 });
 
-test('first chat send freezes selected context and sends that context to main process', () => {
+test('first chat send freezes selected context and sends that context to main process', async () => {
   const { callbacks, calls, elements } = createRendererHarness();
 
   callbacks.showToolbar({
@@ -574,6 +574,9 @@ test('first chat send freezes selected context and sends that context to main pr
   elements['chat-context-text'].dispatchEvent('input');
   elements['chat-input'].value = 'Explain this';
   elements['chat-send-btn'].dispatchEvent('click');
+
+  // Wait for async sendChatMessage to complete
+  await new Promise(resolve => setTimeout(resolve, 10));
 
   const sendCall = calls.find(call => call.type === 'aiChatSend');
   assert.equal(sendCall.selectedText, 'Edited selected text');
