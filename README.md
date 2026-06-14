@@ -99,3 +99,21 @@ tests/          Local test and simulation helpers
 - After installing or changing native dependencies, run `npm run rebuild`. For UOS/Linux ARM64 packaging, use `npm run rebuild:linux:arm64`.
 - Automatic cross-application text capture is Windows-only in the first Linux ARM64 build. On UOS, use the tray action to ask AI with clipboard text.
 - User settings are stored by `electron-store` in the app user data directory, not in this repository.
+
+## UOS ARM64 X11 Capture
+
+Automatic word selection capture is supported on UOS ARM64 when the desktop session is X11.
+
+Required runtime commands:
+
+- `xinput`
+- `xdotool`
+- `xclip`
+
+Install them on UOS with:
+
+```bash
+sudo apt install xinput xdotool xclip
+```
+
+Wayland sessions are not supported for automatic capture. On Wayland or unsupported Linux environments, use the tray AI Chat entry or "Ask AI with clipboard text".

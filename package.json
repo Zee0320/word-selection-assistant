@@ -60,7 +60,10 @@
         "libuuid1",
         "libsecret-1-0",
         "libgbm1",
-        "libasound2"
+        "libasound2",
+        "xdotool",
+        "xclip",
+        "xinput"
       ],
       "recommends": [
         "libappindicator3-1"
