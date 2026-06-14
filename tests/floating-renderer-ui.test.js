@@ -61,8 +61,13 @@ function createElement(id, initialClass = '') {
       listeners.get(type).push(listener);
     },
     dispatchEvent(type, event = {}) {
+      const nextEvent = {
+        stopPropagation() {},
+        preventDefault() {},
+        ...event
+      };
       for (const listener of listeners.get(type) || []) {
-        listener(event);
+        listener(nextEvent);
       }
     },
     appendChild(child) {
@@ -99,6 +104,10 @@ function createRendererHarness() {
     'chat-context-text',
     'chat-context-clear',
     'chat-context-lock',
+    'chat-context-header',
+    'chat-context-label',
+    'chat-context-toggle',
+    'chat-context-status',
     'chat-messages',
     'chat-input',
     'chat-send-btn'
@@ -151,7 +160,9 @@ function createRendererHarness() {
     classifyText: async () => ({ type: 'word', isChinese: false }),
     translateWord: async () => null,
     translateSentence() {},
-    aiChatSend() {},
+    aiChatSend(selectedText, messages) {
+      calls.push({ type: 'aiChatSend', selectedText, messages });
+    },
     parseMarkdown(text) { return text; }
   };
 
