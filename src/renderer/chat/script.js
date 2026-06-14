@@ -251,10 +251,8 @@ async function deleteConversation(conversationId) {
 async function persistConversation(conversation) {
   upsertLocalConversation(conversation);
   activeConversationId = conversation.id;
-  if (saveHistory) {
-    const state = await window.api.saveConversation(conversation);
-    applyState(state);
-  }
+  const state = await window.api.saveConversation(conversation);
+  applyState(state);
   render();
 }
 
@@ -343,10 +341,8 @@ async function finishStreaming(conversationId) {
       await persistConversation(updatedConversation);
     } else {
       upsertLocalConversation(updatedConversation);
-      if (saveHistory) {
-        await window.api.saveConversation(updatedConversation);
-        await window.api.selectConversation(viewedConversationId);
-      }
+      await window.api.saveConversation(updatedConversation);
+      await window.api.selectConversation(viewedConversationId);
       activeConversationId = viewedConversationId;
     }
   }
