@@ -95,7 +95,7 @@ test('getCaptureStatus returns unsupported for missing dependencies', () => {
     backend: null,
     supported: false,
     reason: 'missing-dependencies',
-    missing: ['xsel', 'xdotool']
+    missing: ['xclip', 'xdotool']
   });
 
   const { getCaptureStatus } = require('../src/main/text-capture');
@@ -104,7 +104,7 @@ test('getCaptureStatus returns unsupported for missing dependencies', () => {
 
   assert.equal(status.supported, false);
   assert.equal(status.reason, 'missing-dependencies');
-  assert.deepEqual(status.missing, ['xsel', 'xdotool']);
+  assert.deepEqual(status.missing, ['xclip', 'xdotool']);
 
   resetModules();
 });
