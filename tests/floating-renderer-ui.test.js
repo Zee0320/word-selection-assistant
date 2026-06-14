@@ -66,11 +66,17 @@ function createElement(id, initialClass = '') {
       }
     },
     appendChild(child) {
+      child.parentElement = this;
       this.children.push(child);
       this.lastElementChild = child;
       return child;
     },
-    remove() {},
+    remove() {
+      if (!this.parentElement) return;
+      this.parentElement.children = this.parentElement.children.filter(child => child !== this);
+      this.parentElement.lastElementChild = this.parentElement.children.at(-1) || null;
+      this.parentElement = null;
+    },
     focus() {},
     closest() {
       return null;
@@ -78,7 +84,7 @@ function createElement(id, initialClass = '') {
   };
 }
 
-function createRendererHarness() {
+function createRendererHarness(options = {}) {
   const ids = [
     'toolbar',
     'btn-translate',
@@ -154,6 +160,9 @@ function createRendererHarness() {
     translateSentence() {},
     aiChatSend(selectedText, messages) { calls.push({ type: 'aiChatSend', selectedText, messages }); },
     createFloatingConversation: async (payload) => {
+      if (options.createFloatingConversation) {
+        return options.createFloatingConversation(payload, calls);
+      }
       calls.push({ type: 'createFloatingConversation', payload });
       return {
         conversation: {
@@ -165,6 +174,9 @@ function createRendererHarness() {
       };
     },
     saveFloatingConversation: async (conversation) => {
+      if (options.saveFloatingConversation) {
+        return options.saveFloatingConversation(conversation, calls);
+      }
       calls.push({ type: 'saveFloatingConversation', conversation });
       return { conversation };
     },
@@ -287,4 +299,35 @@ test('floating chat saves assistant message to the synced conversation on done',
   assert.equal(saveCall.conversation.messages[1].role, 'assistant');
   assert.equal(saveCall.conversation.messages[1].content, 'Answer');
   assert.equal(saveCall.conversation.metadata.selectedContext, 'Selected context');
+});
+
+test('floating chat removes unsent user bubble when synced conversation creation fails', async () => {
+  const { calls, elements, callbacks } = createRendererHarness({
+    createFloatingConversation: async (payload, callLog) => {
+      callLog.push({ type: 'createFloatingConversation', payload });
+      throw new Error('store failed');
+    }
+  });
+
+  callbacks.showToolbar({
+    text: 'Selected context',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-input'].value = 'Explain this';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(calls.some(call => call.type === 'aiChatSend'), false);
+  assert.equal(elements['chat-messages'].children.some(child => child.classList.contains('user')), false);
+  assert.equal(elements['chat-messages'].children.some(child => child.classList.contains('error')), true);
 });

@@ -369,7 +369,7 @@ async function sendChatMessage() {
   }
 
   chatMessages.push({ role: 'user', content });
-  appendChatMessage('user', content);
+  const userMessageEl = appendChatMessage('user', content);
 
   try {
     if (!floatingConversationId) {
@@ -387,6 +387,7 @@ async function sendChatMessage() {
     }
   } catch (err) {
     chatMessages.pop();
+    userMessageEl.remove();
     appendChatError(err.message || '保存浮窗会话失败，请重试。');
     return;
   }
