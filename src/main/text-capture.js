@@ -1,11 +1,15 @@
 // src/main/text-capture.js - global text selection capture
 const { clipboard } = require('electron');
 const windowFocus = require('./window-focus');
-const { isAutomaticTextCaptureSupported } = require('./platform-info');
+const { getTextCaptureStatus } = require('./platform-info');
 const { readSelectedTextViaUIAutomation } = require('./selected-text-reader');
 const { readSelectedTextWithFallback } = require('./selected-text-capture-strategy');
+const { createLinuxX11SelectionWatcher } = require('./linux-x11-selection-watcher');
+const { readSelectedTextViaX11 } = require('./linux-selected-text-reader');
 
 let isEnabled = true;
+let linuxWatcher = null;
+let captureStatus = null;
 let onTextCaptured = null;
 let onCapturePending = null;
 let onCaptureMissed = null;
@@ -30,8 +34,15 @@ const SELECTION_SETTLE_MS = 160;
 const PENDING_TOOLBAR_DELAY_MS = 20;
 const PENDING_WINDOW_INFO_BUDGET_MS = 10;
 
+function getCaptureStatus() {
+  if (!captureStatus) {
+    captureStatus = getTextCaptureStatus();
+  }
+  return captureStatus;
+}
+
 function getHookApi() {
-  if (!isAutomaticTextCaptureSupported()) return null;
+  if (getCaptureStatus().backend !== 'windows-uiohook') return null;
   if (hookLoadAttempted) return hookApi;
 
   hookLoadAttempted = true;
@@ -52,6 +63,24 @@ function setShouldIgnoreWindow(cb) {
   shouldIgnoreWindow = cb;
 }
 
+function startLinuxX11Capture() {
+  if (linuxWatcher) return;
+
+  linuxWatcher = createLinuxX11SelectionWatcher({
+    readSelectedText: readSelectedTextViaX11,
+    onTextCaptured: (text, x, y) => {
+      if (!isEnabled) return;
+      if (onTextCaptured) {
+        // Linux doesn't have window handle, pass null
+        const captureId = ++activeCaptureId;
+        onTextCaptured(text, x, y, null, captureId);
+      }
+    }
+  });
+
+  linuxWatcher.start();
+}
+
 function init(callbackOrHandlers) {
   if (typeof callbackOrHandlers === 'function') {
     onTextCaptured = callbackOrHandlers;
@@ -61,6 +90,14 @@ function init(callbackOrHandlers) {
     onTextCaptured = callbackOrHandlers?.onTextCaptured || null;
     onCapturePending = callbackOrHandlers?.onCapturePending || null;
     onCaptureMissed = callbackOrHandlers?.onCaptureMissed || null;
+  }
+
+  // Route to appropriate capture backend based on platform
+  const status = getCaptureStatus();
+  if (status.backend === 'uos-x11' && status.supported) {
+    startLinuxX11Capture();
+    console.log('[TextCapture] Started UOS ARM64 X11 capture');
+    return;
   }
 
   const hook = getHookApi();
@@ -192,6 +229,12 @@ function isPaused() {
 }
 
 function destroy() {
+  // Stop Linux watcher if running
+  if (linuxWatcher) {
+    linuxWatcher.stop();
+    linuxWatcher = null;
+  }
+
   const hook = getHookApi();
   if (!hook) return;
 
@@ -408,6 +451,7 @@ module.exports = {
   captureSelectedTextFromClipboard,
   createClipboardSnapshot,
   destroy,
+  getCaptureStatus,
   init,
   isPaused,
   pause,
