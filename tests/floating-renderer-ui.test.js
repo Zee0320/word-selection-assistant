@@ -462,23 +462,38 @@ test('floating chat keeps user message on AI error', async () => {
   // Wait for microtask to complete
   await new Promise(resolve => setTimeout(resolve, 10));
 
-  // Should NOT have saved again (user message is preserved)
+  // Should NOT have saved again (user message is preserved, no assistant message to save)
   const saveCall = calls.find(c => c.type === 'saveFloatingConversation');
   assert.ok(!saveCall, 'Should NOT call saveFloatingConversation on error');
 
-  // The chat messages array should still contain the user message
-  // Check by sending another message and seeing that conversation continues
+  // Send another message to continue the conversation
   elements['chat-input'].value = 'Try again';
   elements['chat-send-btn'].dispatchEvent('click');
 
   await new Promise(resolve => setTimeout(resolve, 10));
 
+  // Should NOT call createFloatingConversation again (conversation already exists)
   const createCall = calls.find(c => c.type === 'createFloatingConversation');
-  // If conversation persisted correctly, should have save call, not create
-  const nextSaveCall = calls.filter(c => c.type === 'saveFloatingConversation');
-  // Either a save was called (continuing conversation) or create (new conversation)
-  // The key is that the user message wasn't popped
-  assert.ok(nextSaveCall.length > 0 || createCall, 'Should have API call for continuing conversation');
+  assert.ok(!createCall, 'Should NOT call createFloatingConversation again');
+
+  // Simulate AI response success this time
+  callbacks.aiChatChunk('Success');
+  callbacks.aiChatDone();
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  // Now should save with both user messages and the assistant response
+  const nextSaveCall = calls.find(c => c.type === 'saveFloatingConversation');
+  assert.ok(nextSaveCall, 'Should call saveFloatingConversation after successful AI response');
+
+  // The messages should include the first user message (kept after error) + second user message + assistant
+  assert.equal(nextSaveCall.payload.messages.length, 3);
+  assert.equal(nextSaveCall.payload.messages[0].role, 'user');
+  assert.equal(nextSaveCall.payload.messages[0].content, 'What is this?');
+  assert.equal(nextSaveCall.payload.messages[1].role, 'user');
+  assert.equal(nextSaveCall.payload.messages[1].content, 'Try again');
+  assert.equal(nextSaveCall.payload.messages[2].role, 'assistant');
+  assert.equal(nextSaveCall.payload.messages[2].content, 'Success');
 });
 
 test('chat context card starts collapsed with selected text', () => {

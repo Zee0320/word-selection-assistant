@@ -6,9 +6,12 @@ let chatMessages = [];
 let chatContext = '';
 let activeChatContext = '';
 let isChatContextFrozen = false;
+let isChatContextExpanded = false;
 let isStreaming = false;
 let isPinned = false;
 let isTextPending = false;
+let floatingConversationId = '';
+let floatingConversationMetadata = {};
 
 /**
  * Check if API is properly configured for the given purpose
@@ -71,6 +74,9 @@ const translationError = document.getElementById('translation-error');
 const chatContextText = document.getElementById('chat-context-text');
 const chatContextClear = document.getElementById('chat-context-clear');
 const chatContextLock = document.getElementById('chat-context-lock');
+const chatContextCard = document.getElementById('chat-context');
+const chatContextToggle = document.getElementById('chat-context-toggle');
+const chatContextStatus = document.getElementById('chat-context-status');
 const chatMessages$ = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const chatSendBtn = document.getElementById('chat-send-btn');
@@ -231,6 +237,11 @@ window.api.onTranslateChunk((chunk) => {
 
 window.api.onTranslateDone(() => {
   sentenceLoading.classList.add('hidden');
+  // Re-render final content through parseMarkdown for consistent rendering
+  const rawText = sentenceOutput.getAttribute('data-raw') || '';
+  if (rawText) {
+    sentenceOutput.innerHTML = window.api.parseMarkdown(rawText);
+  }
 });
 
 window.api.onTranslateError((err) => {
@@ -328,17 +339,35 @@ chatContextText.addEventListener('input', () => {
   updateChatContextUI();
 });
 
+chatContextToggle.addEventListener('click', (e) => {
+  window.api.notifyInteraction();
+  e.stopPropagation();
+  setChatContextExpanded(!isChatContextExpanded);
+});
+
 chatContextClear.addEventListener('click', (e) => {
   window.api.notifyInteraction();
   e.stopPropagation();
   if (isChatContextFrozen) return;
   chatContext = '';
   chatContextText.value = '';
+  setChatContextExpanded(false);
   updateChatContextUI();
   chatContextText.focus();
 });
 
-function sendChatMessage() {
+/**
+ * Build payload for creating/saving floating conversation
+ */
+function buildFloatingConversationPayload() {
+  return {
+    contextText: activeChatContext || currentText,
+    messages: [...chatMessages],
+    ...floatingConversationMetadata
+  };
+}
+
+async function sendChatMessage() {
   const content = chatInput.value.trim();
   if (!content || isStreaming || isTextPending) return;
 
@@ -349,14 +378,27 @@ function sendChatMessage() {
 
   chatInput.value = '';
   if (!isChatContextFrozen) {
-    activeChatContext = chatContextText.value.trim();
+    activeChatContext = normalizeChatContext(chatContextText.value);
     chatContext = activeChatContext;
     isChatContextFrozen = true;
+    setChatContextExpanded(false);
     updateChatContextUI();
   }
 
   chatMessages.push({ role: 'user', content });
   appendChatMessage('user', content);
+
+  // Persist conversation before sending to AI
+  if (!floatingConversationId) {
+    try {
+      const conv = await window.api.createFloatingConversation(buildFloatingConversationPayload());
+      if (conv && conv.id) {
+        floatingConversationId = conv.id;
+      }
+    } catch (err) {
+      console.error('[Renderer] Failed to create floating conversation:', err);
+    }
+  }
 
   const assistantEl = appendChatMessage('assistant', '');
   assistantEl.classList.add('streaming');
@@ -386,7 +428,17 @@ window.api.onAiChatDone(() => {
   if (lastMsg?.classList.contains('streaming')) {
     lastMsg.classList.remove('streaming');
     const rawText = lastMsg.getAttribute('data-raw') || lastMsg.textContent;
+    // Re-render final content through parseMarkdown for consistent rendering
+    if (rawText) {
+      lastMsg.innerHTML = window.api.parseMarkdown(rawText);
+    }
     chatMessages.push({ role: 'assistant', content: rawText });
+
+    // Persist the assistant message
+    if (floatingConversationId) {
+      window.api.saveFloatingConversation(floatingConversationId, buildFloatingConversationPayload())
+        .catch(err => console.error('[Renderer] Failed to save floating conversation:', err));
+    }
   }
   chatInput.focus();
 });
@@ -397,8 +449,8 @@ window.api.onAiChatError((err) => {
 
   const lastMsg = chatMessages$?.lastElementChild;
   if (lastMsg?.classList.contains('streaming')) {
+    // Only remove the empty assistant message element, keep user message in chatMessages
     lastMsg.remove();
-    chatMessages.pop();
   }
 
   // err is now { message, action } or a legacy string
@@ -497,25 +549,53 @@ function resetChatState() {
   chatContext = currentText;
   activeChatContext = '';
   isChatContextFrozen = false;
+  isChatContextExpanded = false;
   updateChatContextUI();
   chatInput.value = '';
   isStreaming = false;
   chatSendBtn.disabled = false;
+  floatingConversationId = '';
+  floatingConversationMetadata = {};
+}
+
+function normalizeChatContext(text) {
+  return String(text || '').trim();
+}
+
+function setChatContextExpanded(expanded) {
+  isChatContextExpanded = Boolean(expanded);
+  updateChatContextUI();
+}
+
+function getDisplayedChatContext() {
+  return isChatContextFrozen ? activeChatContext : chatContext;
 }
 
 function updateChatContextUI() {
-  const displayContext = isChatContextFrozen ? activeChatContext : chatContext;
+  const displayContext = getDisplayedChatContext();
   if (chatContextText.value !== displayContext) {
     chatContextText.value = displayContext;
   }
 
-  const isEmpty = displayContext.trim() === '';
+  const isEmpty = normalizeChatContext(displayContext) === '';
   chatContextText.readOnly = isChatContextFrozen;
   chatContextText.placeholder = isEmpty ? 'Normal chat - no selected text context' : '';
-  chatContextClear.classList.toggle('hidden', isChatContextFrozen);
+
+  chatContextCard.classList.toggle('context-empty', isEmpty);
+  chatContextCard.classList.toggle('context-frozen', isChatContextFrozen);
+  chatContextCard.classList.toggle('context-expanded', isChatContextExpanded);
+  chatContextCard.classList.toggle('context-collapsed', !isChatContextExpanded);
+
+  chatContextClear.classList.toggle('hidden', isChatContextFrozen || isEmpty);
   chatContextLock.classList.toggle('hidden', !isChatContextFrozen);
-  document.getElementById('chat-context').classList.toggle('context-empty', isEmpty);
-  document.getElementById('chat-context').classList.toggle('context-frozen', isChatContextFrozen);
+  chatContextStatus.classList.toggle('hidden', !isEmpty);
+
+  chatContextToggle.disabled = isChatContextFrozen || isEmpty;
+  chatContextToggle.classList.toggle('hidden', isEmpty);
+  chatContextToggle.textContent = isChatContextExpanded ? '⌃' : '⌄';
+  chatContextToggle.title = isChatContextExpanded ? 'Collapse selected text' : 'Expand selected text';
+  chatContextToggle.setAttribute('aria-label', chatContextToggle.title);
+  chatContextToggle.setAttribute('aria-expanded', String(isChatContextExpanded));
 }
 
 function getActivePanel() {
