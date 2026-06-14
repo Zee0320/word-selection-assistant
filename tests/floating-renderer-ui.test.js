@@ -34,11 +34,29 @@ function createClassList(initial = '') {
 
 function createElement(id, initialClass = '') {
   const listeners = new Map();
+  const classes = new Set(initialClass.split(/\s+/).filter(Boolean));
+
+  const classList = {
+    add(...names) { names.forEach(name => classes.add(name)); },
+    remove(...names) { names.forEach(name => classes.delete(name)); },
+    contains(name) { return classes.has(name); },
+    toggle(name, force) {
+      const shouldAdd = force === undefined ? !classes.has(name) : Boolean(force);
+      if (shouldAdd) classes.add(name);
+      else classes.delete(name);
+      return shouldAdd;
+    }
+  };
 
   return {
     id,
     style: {},
-    classList: createClassList(initialClass),
+    get className() { return [...classes].join(' '); },
+    set className(value) {
+      classes.clear();
+      value.split(/\s+/).filter(Boolean).forEach(c => classes.add(c));
+    },
+    classList,
     attributes: {},
     children: [],
     value: '',
@@ -326,8 +344,14 @@ test('floating chat removes unsent user bubble when synced conversation creation
 
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
 
-  assert.equal(calls.some(call => call.type === 'aiChatSend'), false);
-  assert.equal(elements['chat-messages'].children.some(child => child.classList.contains('user')), false);
-  assert.equal(elements['chat-messages'].children.some(child => child.classList.contains('error')), true);
+  // aiChatSend should not be called
+  assert.equal(calls.some(call => call.type === 'aiChatSend'), false, 'aiChatSend should not be called');
+  // User message should be removed
+  const userMessages = elements['chat-messages'].children.filter(child => child.classList && child.classList.contains('user'));
+  assert.equal(userMessages.length, 0, 'User message should be removed');
+  // Error message should be shown
+  const errorMessages = elements['chat-messages'].children.filter(child => child.classList && child.classList.contains('message-error'));
+  assert.ok(errorMessages.length > 0, 'Expected error message to be shown');
 });
