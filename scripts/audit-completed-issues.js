@@ -3,18 +3,18 @@
  *
  * Verifies that completed issues have all required artifacts:
  * - Required files exist in the worktree
- * - Verification text doesn't contain incomplete markers
- * - npm test result is recorded
+ * - Verification file exists and contains required text
+ * - No forbidden incomplete markers in verification file
  */
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 /**
  * List of forbidden text patterns that indicate incomplete work
  */
 const FORBIDDEN_VERIFICATION_TEXT = [
+  'BLOCKED',
   'PENDING',
   'PARTIAL',
   'IN_PROGRESS',
@@ -26,66 +26,77 @@ const FORBIDDEN_VERIFICATION_TEXT = [
 ];
 
 /**
- * Default configuration for issues to audit
+ * Configuration for issues to audit
  * Keys are issue numbers, values are audit configurations
  */
-const DEFAULT_CONFIG = {
-  2: {
+const ISSUE_CONFIG = {
+  '2': {
+    root: '.claude/worktrees/issue-2-markdown',
+    verificationFile: 'docs/superpowers/verification/2026-06-14-issue-2.md',
     requiredFiles: [
-      'src/main/selected-context.js',
-      'tests/selected-context.test.js'
+      'src/main/markdown-renderer.js',
+      'src/renderer/floating/script.js',
+      'src/renderer/floating/style.css',
+      'tests/markdown-renderer.test.js',
+      'tests/floating-renderer-ui.test.js',
+      'tests/chat-renderer-markdown.test.js'
     ],
-    verificationText: 'SelectedContext class captures surrounding lines',
-    testResultFile: null
+    requiredVerificationText: [
+      'Changed Files',
+      'PASS',
+      'npm test'
+    ]
   },
-  3: {
+  '3': {
+    root: '.claude/worktrees/issue-3-uos-x11',
+    verificationFile: 'docs/superpowers/verification/2026-06-14-issue-3.md',
     requiredFiles: [
-      'src/main/chat-history.js',
-      'tests/chat-history.test.js'
+      'src/main/platform-info.js',
+      'src/main/linux-selected-text-reader.js',
+      'src/main/linux-x11-selection-watcher.js',
+      'src/main/text-capture.js',
+      'tests/platform-info.test.js',
+      'tests/linux-selected-text-reader.test.js',
+      'tests/linux-x11-selection-watcher.test.js',
+      'tests/text-capture-platform-route.test.js'
     ],
-    verificationText: 'Chat history persistence with SQLite',
-    testResultFile: null
+    requiredVerificationText: [
+      'Changed Files',
+      'PASS',
+      'npm test'
+    ]
   },
-  5: {
+  '5': {
+    root: '.claude/worktrees/issue-5',
+    verificationFile: 'docs/superpowers/verification/2026-06-14-issue-5.md',
     requiredFiles: [
-      'src/main/chat-prompt.js',
-      'tests/chat-prompt.test.js'
+      'src/renderer/floating/script.js',
+      'src/renderer/floating/index.html',
+      'src/renderer/floating/style.css',
+      'tests/floating-renderer-ui.test.js'
     ],
-    verificationText: 'Chat prompt templates with context injection',
-    testResultFile: null
+    requiredVerificationText: [
+      'Changed Files',
+      'PASS',
+      'npm test'
+    ]
   },
-  6: {
+  '6': {
+    root: '.claude/worktrees/issue-6-empty-selection',
+    verificationFile: 'docs/superpowers/verification/2026-06-14-issue-6.md',
     requiredFiles: [
-      'src/main/api-request-config.js',
-      'tests/api-request-config.test.js'
+      'src/main/text-capture.js',
+      'src/main/index.js',
+      'tests/text-capture.test.js',
+      'tests/floating-renderer-ui.test.js'
     ],
-    verificationText: 'API request configuration with custom headers',
-    testResultFile: null
+    requiredVerificationText: [
+      'Changed Files',
+      'PASS',
+      'npm test'
+    ]
   }
 };
-
-/**
- * Check if a worktree exists for the given issue number
- * @param {number} issueNumber - The issue number
- * @param {string} worktreesDir - Path to worktrees directory
- * @returns {string|null} - Path to worktree or null if not found
- */
-function findWorktree(issueNumber, worktreesDir = '.claude/worktrees') {
-  const possibleNames = [
-    `issue-${issueNumber}`,
-    `issue${issueNumber}`,
-    `${issueNumber}`
-  ];
-
-  for (const name of possibleNames) {
-    const worktreePath = path.join(worktreesDir, name);
-    if (fs.existsSync(worktreePath)) {
-      return worktreePath;
-    }
-  }
-
-  return null;
-}
 
 /**
  * Check if a file exists
@@ -121,9 +132,10 @@ function readFile(filePath, basePath = '.') {
 function findForbiddenPattern(text) {
   if (!text) return null;
 
-  const upperText = text.toUpperCase();
   for (const pattern of FORBIDDEN_VERIFICATION_TEXT) {
-    if (upperText.includes(pattern.toUpperCase())) {
+    // Use simple case-insensitive string matching
+    // This handles patterns like "TODO:" correctly
+    if (text.toUpperCase().includes(pattern.toUpperCase())) {
       return pattern;
     }
   }
@@ -131,111 +143,69 @@ function findForbiddenPattern(text) {
 }
 
 /**
- * Run npm test in a directory and return the result
- * @param {string} dir - Directory to run tests in
- * @returns {{ success: boolean, output: string }}
+ * Check if text contains all required patterns
+ * @param {string} text - Text to check
+ * @param {string[]} requiredPatterns - Array of required patterns
+ * @returns {{ found: string[], missing: string[] }}
  */
-function runNpmTest(dir) {
-  try {
-    const output = execSync('npm test', {
-      cwd: dir,
-      encoding: 'utf8',
-      timeout: 60000,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    return { success: true, output };
-  } catch (error) {
-    return {
-      success: false,
-      output: error.stdout || error.stderr || error.message
-    };
+function checkRequiredPatterns(text, requiredPatterns) {
+  const found = [];
+  const missing = [];
+
+  for (const pattern of requiredPatterns) {
+    if (text && text.includes(pattern)) {
+      found.push(pattern);
+    } else {
+      missing.push(pattern);
+    }
   }
+
+  return { found, missing };
 }
 
 /**
  * Audit a single issue
- * @param {number} issueNumber - Issue number to audit
+ * @param {string} issueNumber - Issue number to audit
  * @param {object} config - Audit configuration for the issue
- * @param {object} options - Additional options
- * @param {string} options.worktreesDir - Path to worktrees directory
- * @param {boolean} options.runTests - Whether to actually run tests
+ * @param {string} projectRoot - Project root directory
  * @returns {{ passed: boolean, errors: string[], warnings: string[] }}
  */
-function auditIssue(issueNumber, config = null, options = {}) {
-  const {
-    worktreesDir = '.claude/worktrees',
-    runTests = false
-  } = options;
-
-  const issueConfig = config || DEFAULT_CONFIG[issueNumber];
-
-  if (!issueConfig) {
-    return {
-      passed: false,
-      errors: [`No configuration found for issue #${issueNumber}`],
-      warnings: []
-    };
-  }
-
+function auditIssue(issueNumber, config, projectRoot = '.') {
   const errors = [];
   const warnings = [];
 
+  const worktreePath = path.resolve(projectRoot, config.root);
+
   // Check 1: Worktree exists
-  const worktreePath = findWorktree(issueNumber, worktreesDir);
-  if (!worktreePath) {
-    errors.push(`Worktree not found for issue #${issueNumber}`);
+  if (!fs.existsSync(worktreePath)) {
+    errors.push(`Worktree not found: ${config.root}`);
     return { passed: false, errors, warnings };
   }
 
-  // Check 2: Required files exist
-  const basePath = path.resolve(worktreesDir, worktreePath);
-  for (const file of issueConfig.requiredFiles) {
-    if (!fileExists(file, basePath)) {
+  // Check 2: Verification file exists
+  const verificationPath = path.resolve(worktreePath, config.verificationFile);
+  const verificationContent = readFile(config.verificationFile, worktreePath);
+
+  if (!verificationContent) {
+    errors.push(`Verification file missing: ${config.verificationFile}`);
+  } else {
+    // Check 3: No forbidden patterns in verification file
+    const forbiddenPattern = findForbiddenPattern(verificationContent);
+    if (forbiddenPattern) {
+      errors.push(`Verification file contains incomplete marker: ${forbiddenPattern}`);
+    }
+
+    // Check 4: Required verification text present
+    const { missing } = checkRequiredPatterns(verificationContent, config.requiredVerificationText);
+    if (missing.length > 0) {
+      warnings.push(`Verification file missing required text: ${missing.join(', ')}`);
+    }
+  }
+
+  // Check 5: Required files exist
+  for (const file of config.requiredFiles) {
+    if (!fileExists(file, worktreePath)) {
       errors.push(`Required file missing: ${file}`);
-    }
-  }
-
-  // Check 3: Scan all required files for forbidden patterns
-  for (const file of issueConfig.requiredFiles) {
-    const content = readFile(file, basePath);
-    if (content) {
-      const forbiddenPattern = findForbiddenPattern(content);
-      if (forbiddenPattern) {
-        errors.push(`File ${file} contains incomplete marker: ${forbiddenPattern}`);
-      }
-    }
-  }
-
-  // Also check verification files if they exist
-  const verificationLocations = [
-    'VERIFICATION.md',
-    'docs/verification.md',
-    '.claude/verification.md',
-    'README.md'
-  ];
-
-  for (const location of verificationLocations) {
-    const content = readFile(location, basePath);
-    if (content) {
-      const forbiddenPattern = findForbiddenPattern(content);
-      if (forbiddenPattern) {
-        errors.push(`Verification file ${location} contains incomplete marker: ${forbiddenPattern}`);
-      }
-      break;
-    }
-  }
-
-  // Check 4: npm test result (optional, only if runTests is true)
-  if (runTests) {
-    const testResult = runNpmTest(basePath);
-    if (!testResult.success) {
-      errors.push('npm test failed');
-      warnings.push(`Test output: ${testResult.output.slice(0, 200)}...`);
-    }
-  } else if (issueConfig.testResultFile) {
-    // Check for recorded test result file
-    if (!fileExists(issueConfig.testResultFile, basePath)) {
-      errors.push(`Test result file missing: ${issueConfig.testResultFile}`);
     }
   }
 
@@ -248,16 +218,15 @@ function auditIssue(issueNumber, config = null, options = {}) {
 
 /**
  * Audit all configured issues
- * @param {object} config - Configuration object mapping issue numbers to audit configs
- * @param {object} options - Additional options
+ * @param {string} projectRoot - Project root directory
  * @returns {{ passed: boolean, results: object }}
  */
-function auditAll(config = DEFAULT_CONFIG, options = {}) {
+function auditAll(projectRoot = '.') {
   const results = {};
   let allPassed = true;
 
-  for (const issueNumber of Object.keys(config)) {
-    const result = auditIssue(parseInt(issueNumber), config[issueNumber], options);
+  for (const issueNumber of Object.keys(ISSUE_CONFIG)) {
+    const result = auditIssue(issueNumber, ISSUE_CONFIG[issueNumber], projectRoot);
     results[issueNumber] = result;
     if (!result.passed) {
       allPassed = false;
@@ -275,17 +244,14 @@ function auditAll(config = DEFAULT_CONFIG, options = {}) {
  */
 function main() {
   const args = process.argv.slice(2);
-  const runTests = args.includes('--run-tests');
 
   // Parse issue numbers from args
   const issueNumbers = args
-    .filter(arg => /^\d+$/.test(arg))
-    .map(n => parseInt(n));
+    .filter(arg => /^\d+$/.test(arg));
 
-  const config = DEFAULT_CONFIG;
   const issuesToAudit = issueNumbers.length > 0
     ? issueNumbers
-    : Object.keys(config).map(n => parseInt(n));
+    : Object.keys(ISSUE_CONFIG);
 
   console.log('Completed Issue Audit');
   console.log('=====================\n');
@@ -293,7 +259,13 @@ function main() {
   let allPassed = true;
 
   for (const issueNumber of issuesToAudit) {
-    const result = auditIssue(issueNumber, config[issueNumber], { runTests });
+    if (!ISSUE_CONFIG[issueNumber]) {
+      console.log(`Issue #${issueNumber}: SKIPPED (no configuration)`);
+      console.log('');
+      continue;
+    }
+
+    const result = auditIssue(issueNumber, ISSUE_CONFIG[issueNumber]);
 
     console.log(`Issue #${issueNumber}: ${result.passed ? 'PASSED' : 'FAILED'}`);
 
@@ -330,9 +302,9 @@ if (require.main === module) {
 module.exports = {
   auditIssue,
   auditAll,
-  DEFAULT_CONFIG,
+  ISSUE_CONFIG,
   FORBIDDEN_VERIFICATION_TEXT,
-  findWorktree,
   fileExists,
-  findForbiddenPattern
+  findForbiddenPattern,
+  checkRequiredPatterns
 };

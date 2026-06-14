@@ -9,12 +9,14 @@ const path = require('path');
 const {
   auditIssue,
   auditAll,
-  DEFAULT_CONFIG,
+  ISSUE_CONFIG,
   FORBIDDEN_VERIFICATION_TEXT,
-  findWorktree,
   fileExists,
-  findForbiddenPattern
+  findForbiddenPattern,
+  checkRequiredPatterns
 } = require('../scripts/audit-completed-issues.js');
+
+const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 // Helper to create temp directories
 function createTempDir() {
@@ -35,19 +37,39 @@ test('FORBIDDEN_VERIFICATION_TEXT contains expected markers', () => {
   assert.ok(FORBIDDEN_VERIFICATION_TEXT.includes('PARTIAL'));
   assert.ok(FORBIDDEN_VERIFICATION_TEXT.includes('IN_PROGRESS'));
   assert.ok(FORBIDDEN_VERIFICATION_TEXT.includes('TODO:'));
+  assert.ok(FORBIDDEN_VERIFICATION_TEXT.includes('BLOCKED'));
 });
 
-test('DEFAULT_CONFIG contains expected issues', () => {
-  assert.ok(DEFAULT_CONFIG[2]);
-  assert.ok(DEFAULT_CONFIG[3]);
-  assert.ok(DEFAULT_CONFIG[5]);
-  assert.ok(DEFAULT_CONFIG[6]);
+test('ISSUE_CONFIG contains expected issues', () => {
+  assert.ok(ISSUE_CONFIG['2']);
+  assert.ok(ISSUE_CONFIG['3']);
+  assert.ok(ISSUE_CONFIG['5']);
+  assert.ok(ISSUE_CONFIG['6']);
 
   // Verify each has required files
-  for (const config of Object.values(DEFAULT_CONFIG)) {
+  for (const config of Object.values(ISSUE_CONFIG)) {
     assert.ok(Array.isArray(config.requiredFiles));
     assert.ok(config.requiredFiles.length > 0);
+    assert.ok(config.root);
+    assert.ok(config.verificationFile);
+    assert.ok(Array.isArray(config.requiredVerificationText));
   }
+});
+
+test('ISSUE_CONFIG issue 2 has correct worktree path', () => {
+  assert.equal(ISSUE_CONFIG['2'].root, '.claude/worktrees/issue-2-markdown');
+});
+
+test('ISSUE_CONFIG issue 3 has correct worktree path', () => {
+  assert.equal(ISSUE_CONFIG['3'].root, '.claude/worktrees/issue-3-uos-x11');
+});
+
+test('ISSUE_CONFIG issue 5 has correct worktree path', () => {
+  assert.equal(ISSUE_CONFIG['5'].root, '.claude/worktrees/issue-5');
+});
+
+test('ISSUE_CONFIG issue 6 has correct worktree path', () => {
+  assert.equal(ISSUE_CONFIG['6'].root, '.claude/worktrees/issue-6-empty-selection');
 });
 
 test('findForbiddenPattern returns null for clean text', () => {
@@ -61,6 +83,7 @@ test('findForbiddenPattern detects forbidden markers', () => {
   assert.equal(findForbiddenPattern('This is PARTIAL implementation'), 'PARTIAL');
   assert.equal(findForbiddenPattern('TODO: finish this'), 'TODO:');
   assert.equal(findForbiddenPattern('FIXME: broken code'), 'FIXME:');
+  assert.equal(findForbiddenPattern('Status: BLOCKED'), 'BLOCKED');
 });
 
 test('findForbiddenPattern is case-insensitive', () => {
@@ -68,6 +91,11 @@ test('findForbiddenPattern is case-insensitive', () => {
   assert.equal(findForbiddenPattern('Status: Pending'), 'PENDING');
   assert.equal(findForbiddenPattern('TODO: something'), 'TODO:');
   assert.equal(findForbiddenPattern('todo: something'), 'TODO:');
+});
+
+test('findForbiddenPattern handles null and undefined', () => {
+  assert.equal(findForbiddenPattern(null), null);
+  assert.equal(findForbiddenPattern(undefined), null);
 });
 
 test('fileExists returns correct results', () => {
@@ -84,67 +112,63 @@ test('fileExists returns correct results', () => {
   }
 });
 
-test('findWorktree returns null when worktree does not exist', () => {
-  const tempDir = createTempDir();
-  try {
-    const result = findWorktree(999, tempDir);
-    assert.equal(result, null);
-  } finally {
-    cleanupTempDir(tempDir);
-  }
+test('checkRequiredPatterns finds all patterns', () => {
+  const text = 'Changed Files\nPASS\nnpm test';
+  const patterns = ['Changed Files', 'PASS', 'npm test'];
+  const result = checkRequiredPatterns(text, patterns);
+  assert.deepEqual(result.found, patterns);
+  assert.deepEqual(result.missing, []);
 });
 
-test('findWorktree finds worktree with various naming patterns', () => {
-  const tempDir = createTempDir();
-  try {
-    // Test pattern: issue-{number}
-    fs.mkdirSync(path.join(tempDir, 'issue-123'), { recursive: true });
-    const result123 = findWorktree(123, tempDir);
-    assert.ok(result123);
-    assert.equal(path.basename(result123), 'issue-123');
+test('checkRequiredPatterns identifies missing patterns', () => {
+  const text = 'Changed Files\nPASS';
+  const patterns = ['Changed Files', 'PASS', 'npm test'];
+  const result = checkRequiredPatterns(text, patterns);
+  assert.deepEqual(result.found, ['Changed Files', 'PASS']);
+  assert.deepEqual(result.missing, ['npm test']);
+});
 
-    // Test pattern: issue{number}
-    fs.mkdirSync(path.join(tempDir, 'issue456'), { recursive: true });
-    const result456 = findWorktree(456, tempDir);
-    assert.ok(result456);
-    assert.equal(path.basename(result456), 'issue456');
-
-    // Test pattern: {number}
-    fs.mkdirSync(path.join(tempDir, '789'), { recursive: true });
-    const result789 = findWorktree(789, tempDir);
-    assert.ok(result789);
-    assert.equal(path.basename(result789), '789');
-  } finally {
-    cleanupTempDir(tempDir);
-  }
+test('checkRequiredPatterns handles null text', () => {
+  const patterns = ['test'];
+  const result = checkRequiredPatterns(null, patterns);
+  assert.deepEqual(result.found, []);
+  assert.deepEqual(result.missing, ['test']);
 });
 
 test('auditIssue fails when worktree is missing', () => {
-  const tempDir = createTempDir();
-  try {
-    const result = auditIssue(999, {
-      requiredFiles: ['test.js'],
-      verificationText: 'Test complete'
-    }, { worktreesDir: tempDir });
+  const fakeConfig = {
+    root: '.claude/worktrees/nonexistent',
+    verificationFile: 'verification.md',
+    requiredFiles: ['test.js'],
+    requiredVerificationText: ['test']
+  };
+  const result = auditIssue('999', fakeConfig, PROJECT_ROOT);
 
-    assert.equal(result.passed, false);
-    assert.ok(result.errors.some(e => e.includes('Worktree not found')));
-  } finally {
-    cleanupTempDir(tempDir);
-  }
+  assert.equal(result.passed, false);
+  assert.ok(result.errors.some(e => e.includes('Worktree not found')));
 });
 
-test('auditIssue fails when required artifact files are missing', () => {
+test('auditIssue fails when required files are missing', () => {
   const tempDir = createTempDir();
   try {
     // Create worktree
     const worktreePath = path.join(tempDir, 'issue-100');
     fs.mkdirSync(worktreePath, { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'docs/superpowers/verification'), { recursive: true });
 
-    const result = auditIssue(100, {
+    const config = {
+      root: 'issue-100',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-100.md',
       requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
-      verificationText: 'Feature complete'
-    }, { worktreesDir: tempDir });
+      requiredVerificationText: ['PASS']
+    };
+
+    fs.writeFileSync(
+      path.join(worktreePath, 'docs/superpowers/verification/2026-06-14-issue-100.md'),
+      '# Verification\nPASS\nnpm test'
+    );
+
+    const result = auditIssue('100', config, tempDir);
 
     assert.equal(result.passed, false);
     assert.ok(result.errors.some(e => e.includes('Required file missing')));
@@ -155,30 +179,38 @@ test('auditIssue fails when required artifact files are missing', () => {
   }
 });
 
-test('auditIssue fails when verification text contains incomplete markers', () => {
+test('auditIssue fails when verification contains BLOCKED', () => {
   const tempDir = createTempDir();
   try {
-    // Create worktree with all required files
     const worktreePath = path.join(tempDir, 'issue-101');
     fs.mkdirSync(path.join(worktreePath, 'src/main'), { recursive: true });
     fs.mkdirSync(path.join(worktreePath, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'docs/superpowers/verification'), { recursive: true });
 
     fs.writeFileSync(
       path.join(worktreePath, 'src/main/code.js'),
-      '// Implementation is TODO: needs work'
+      'module.exports = { feature: true };'
     );
     fs.writeFileSync(
       path.join(worktreePath, 'tests/code.test.js'),
-      'Feature complete'
+      'Feature implementation complete'
+    );
+    fs.writeFileSync(
+      path.join(worktreePath, 'docs/superpowers/verification/2026-06-14-issue-101.md'),
+      '# Verification\n\n## Status\n\nBLOCKED\n\nNeed screenshots.'
     );
 
-    const result = auditIssue(101, {
+    const config = {
+      root: 'issue-101',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-101.md',
       requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
-      verificationText: null
-    }, { worktreesDir: tempDir });
+      requiredVerificationText: ['PASS']
+    };
+
+    const result = auditIssue('101', config, tempDir);
 
     assert.equal(result.passed, false);
-    assert.ok(result.errors.some(e => e.includes('incomplete marker')));
+    assert.ok(result.errors.some(e => e.includes('BLOCKED')));
   } finally {
     cleanupTempDir(tempDir);
   }
@@ -187,10 +219,10 @@ test('auditIssue fails when verification text contains incomplete markers', () =
 test('auditIssue passes when all requirements are met', () => {
   const tempDir = createTempDir();
   try {
-    // Create worktree with all required files
     const worktreePath = path.join(tempDir, 'issue-102');
     fs.mkdirSync(path.join(worktreePath, 'src/main'), { recursive: true });
     fs.mkdirSync(path.join(worktreePath, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'docs/superpowers/verification'), { recursive: true });
 
     // Write clean files without forbidden markers
     fs.writeFileSync(
@@ -201,11 +233,19 @@ test('auditIssue passes when all requirements are met', () => {
       path.join(worktreePath, 'tests/code.test.js'),
       'Feature implementation complete and verified'
     );
+    fs.writeFileSync(
+      path.join(worktreePath, 'docs/superpowers/verification/2026-06-14-issue-102.md'),
+      '# Verification\n\n## Changed Files\n\n- src/main/code.js\n\n## Tests\n\nnpm test\nResult: PASS'
+    );
 
-    const result = auditIssue(102, {
+    const config = {
+      root: 'issue-102',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-102.md',
       requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
-      verificationText: 'complete and verified'
-    }, { worktreesDir: tempDir });
+      requiredVerificationText: ['Changed Files', 'PASS', 'npm test']
+    };
+
+    const result = auditIssue('102', config, tempDir);
 
     assert.equal(result.passed, true);
     assert.equal(result.errors.length, 0);
@@ -215,84 +255,39 @@ test('auditIssue passes when all requirements are met', () => {
 });
 
 test('auditAll returns aggregated results', () => {
-  const tempDir = createTempDir();
-  try {
-    // Create one passing worktree
-    const passingWorktree = path.join(tempDir, 'issue-200');
-    fs.mkdirSync(path.join(passingWorktree, 'src/main'), { recursive: true });
-    fs.writeFileSync(
-      path.join(passingWorktree, 'src/main/code.js'),
-      'Complete implementation'
-    );
+  const result = auditAll(PROJECT_ROOT);
 
-    // Create config for test issues
-    const testConfig = {
-      200: {
-        requiredFiles: ['src/main/code.js'],
-        verificationText: null
-      },
-      201: {
-        requiredFiles: ['src/main/other.js'],
-        verificationText: null
-      }
-    };
-
-    const result = auditAll(testConfig, { worktreesDir: tempDir });
-
-    assert.equal(result.passed, false); // 201 is missing
-    assert.ok(result.results[200]);
-    assert.ok(result.results[201]);
-    assert.equal(result.results[200].passed, true);
-    assert.equal(result.results[201].passed, false);
-  } finally {
-    cleanupTempDir(tempDir);
-  }
+  assert.ok(result.results['2']);
+  assert.ok(result.results['3']);
+  assert.ok(result.results['5']);
+  assert.ok(result.results['6']);
+  assert.equal(typeof result.passed, 'boolean');
 });
 
-test('auditIssue handles test result file requirement', () => {
-  const tempDir = createTempDir();
-  try {
-    const worktreePath = path.join(tempDir, 'issue-300');
-    fs.mkdirSync(worktreePath, { recursive: true });
-    fs.writeFileSync(
-      path.join(worktreePath, 'code.js'),
-      'complete'
-    );
-
-    // Config with test result file requirement
-    const config = {
-      requiredFiles: ['code.js'],
-      verificationText: null,
-      testResultFile: 'test-results.json'
-    };
-
-    const result = auditIssue(300, config, { worktreesDir: tempDir });
-
-    assert.equal(result.passed, false);
-    assert.ok(result.errors.some(e => e.includes('Test result file missing')));
-  } finally {
-    cleanupTempDir(tempDir);
-  }
+// Integration tests for real worktrees
+test('issue 5 worktree audit passes (context card implementation)', () => {
+  const result = auditIssue('5', ISSUE_CONFIG['5'], PROJECT_ROOT);
+  assert.equal(result.passed, true);
 });
 
-test('auditIssue passes when test result file exists', () => {
-  const tempDir = createTempDir();
-  try {
-    const worktreePath = path.join(tempDir, 'issue-301');
-    fs.mkdirSync(worktreePath, { recursive: true });
-    fs.writeFileSync(path.join(worktreePath, 'code.js'), 'complete');
-    fs.writeFileSync(path.join(worktreePath, 'test-results.json'), '{"passed": true}');
+test('issue 3 worktree audit reflects BLOCKED status (UOS ARM64 implementation)', () => {
+  const result = auditIssue('3', ISSUE_CONFIG['3'], PROJECT_ROOT);
+  // Issue 3 verification is BLOCKED - needs UOS ARM64 hardware for manual verification
+  assert.equal(result.passed, false);
+  assert.ok(result.errors.some(e => e.includes('BLOCKED')));
+});
 
-    const config = {
-      requiredFiles: ['code.js'],
-      verificationText: null,
-      testResultFile: 'test-results.json'
-    };
+test('issue 6 worktree audit reflects PENDING status (empty selection gate)', () => {
+  const result = auditIssue('6', ISSUE_CONFIG['6'], PROJECT_ROOT);
+  // Issue 6 verification has PENDING in manual checks table
+  // This is a legitimate PENDING state - manual Windows testing required
+  assert.equal(result.passed, false);
+  assert.ok(result.errors.some(e => e.includes('PENDING')));
+});
 
-    const result = auditIssue(301, config, { worktreesDir: tempDir });
-
-    assert.equal(result.passed, true);
-  } finally {
-    cleanupTempDir(tempDir);
-  }
+test('issue 2 worktree audit reflects BLOCKED status', () => {
+  const result = auditIssue('2', ISSUE_CONFIG['2'], PROJECT_ROOT);
+  // Issue 2 verification explicitly says BLOCKED - needs screenshots
+  assert.equal(result.passed, false);
+  assert.ok(result.errors.some(e => e.includes('BLOCKED')));
 });
