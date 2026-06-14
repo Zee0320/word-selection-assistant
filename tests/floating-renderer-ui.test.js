@@ -71,6 +71,7 @@ function createElement(id, initialClass = '') {
       return child;
     },
     remove() {},
+    focus() {},
     closest() {
       return null;
     }
@@ -139,9 +140,9 @@ function createRendererHarness() {
     onTranslateChunk() {},
     onTranslateDone() {},
     onTranslateError() {},
-    onAiChatChunk() {},
-    onAiChatDone() {},
-    onAiChatError() {},
+    onAiChatChunk(cb) { callbacks.aiChatChunk = cb; },
+    onAiChatDone(cb) { callbacks.aiChatDone = cb; },
+    onAiChatError(cb) { callbacks.aiChatError = cb; },
     notifyInteraction() { calls.push('notifyInteraction'); },
     moveWindow() { calls.push('moveWindow'); },
     collapseWindow() { calls.push('collapseWindow'); },
@@ -151,7 +152,22 @@ function createRendererHarness() {
     classifyText: async () => ({ type: 'word', isChinese: false }),
     translateWord: async () => null,
     translateSentence() {},
-    aiChatSend() {},
+    aiChatSend(selectedText, messages) { calls.push({ type: 'aiChatSend', selectedText, messages }); },
+    createFloatingConversation: async (payload) => {
+      calls.push({ type: 'createFloatingConversation', payload });
+      return {
+        conversation: {
+          id: 'conv-floating',
+          title: payload.userMessage,
+          metadata: { selectedContext: payload.selectedText, source: 'floating' },
+          messages: [{ role: 'user', content: payload.userMessage }]
+        }
+      };
+    },
+    saveFloatingConversation: async (conversation) => {
+      calls.push({ type: 'saveFloatingConversation', conversation });
+      return { conversation };
+    },
     parseMarkdown(text) { return text; }
   };
 
@@ -204,4 +220,71 @@ test('final show-toolbar after pending enables translate and chat actions', () =
   assert.equal(elements['btn-chat'].disabled, false);
   assert.equal(elements['btn-chat'].classList.contains('toolbar-btn-disabled'), false);
   assert.equal(elements['btn-chat'].getAttribute('aria-disabled'), 'false');
+});
+
+test('floating chat creates synced conversation before sending AI request', async () => {
+  const { callbacks, calls, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected context',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-input'].value = 'Explain this';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  // Wait for async operations
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(calls[0], 'notifyInteraction');
+  assert.ok(calls.some(call => call.type === 'createFloatingConversation'));
+  assert.ok(calls.some(call => call.type === 'aiChatSend'));
+
+  const createCall = calls.find(call => call.type === 'createFloatingConversation');
+  assert.equal(createCall.payload.selectedText, 'Selected context');
+  assert.equal(createCall.payload.userMessage, 'Explain this');
+});
+
+test('floating chat saves assistant message to the synced conversation on done', async () => {
+  const { callbacks, calls, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected context',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-input'].value = 'Explain this';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  // Wait for async operations
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  callbacks.aiChatChunk('Answer');
+  callbacks.aiChatDone();
+
+  await new Promise(resolve => setImmediate(resolve));
+
+  const saveCall = calls.find(call => call.type === 'saveFloatingConversation');
+  assert.ok(saveCall);
+  assert.equal(saveCall.conversation.id, 'conv-floating');
+  assert.equal(saveCall.conversation.messages[0].role, 'user');
+  assert.equal(saveCall.conversation.messages[1].role, 'assistant');
+  assert.equal(saveCall.conversation.messages[1].content, 'Answer');
+  assert.equal(saveCall.conversation.metadata.selectedContext, 'Selected context');
 });
