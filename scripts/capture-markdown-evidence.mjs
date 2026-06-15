@@ -9,12 +9,13 @@ import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
+import { execFileSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const require = createRequire(import.meta.url);
-const { renderMarkdownToHtml } = require('../src/main/markdown-renderer');
+const projectRoot = path.join(__dirname, '..');
+
+app.commandLine.appendSwitch('disable-gpu');
 
 // CSS styles from floating/style.css for markdown-body
 const markdownStyles = `
@@ -81,6 +82,24 @@ const maliciousHtml = [
   '[unsafe link](javascript:alert(1))'
 ].join('\n');
 
+function renderMarkdownToHtml(markdown) {
+  const nodeExecutable = process.env.npm_node_execpath || process.env.NODE || 'node';
+  const rendererScript = [
+    "const fs = require('node:fs');",
+    "const input = fs.readFileSync(0, 'utf8');",
+    "const { renderMarkdownToHtml } = require('./src/main/markdown-renderer');",
+    'process.stdout.write(renderMarkdownToHtml(input));'
+  ].join('\n');
+
+  return execFileSync(nodeExecutable, ['-e', rendererScript], {
+    cwd: projectRoot,
+    input: markdown,
+    encoding: 'utf8',
+    timeout: 15000,
+    windowsHide: true
+  });
+}
+
 /**
  * Creates a complete HTML document for rendering
  */
@@ -123,10 +142,15 @@ async function captureScreenshot(window, filename) {
 }
 
 /**
- * Wait for a specified duration
+ * Waits for the loaded document to finish painting stable content.
  */
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+async function waitForRender(window) {
+  await window.webContents.executeJavaScript(`
+    new Promise(resolve => {
+      const ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+      ready.then(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    })
+  `);
 }
 
 /**
@@ -153,7 +177,7 @@ async function run() {
     console.log('Capturing normal markdown rendering...');
     const normalHtml = createHtml('Markdown Rendering', renderMarkdownToHtml(normalMarkdown));
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(normalHtml)}`);
-    await delay(100);  // Brief delay to ensure rendering is complete
+    await waitForRender(window);
     await captureScreenshot(window, 'markdown-panel.png');
 
     console.log('');
@@ -162,7 +186,7 @@ async function run() {
     console.log('Capturing malicious HTML (XSS protection)...');
     const escapedHtml = createHtml('Escaped HTML (XSS Protection)', renderMarkdownToHtml(maliciousHtml));
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(escapedHtml)}`);
-    await delay(100);  // Brief delay to ensure rendering is complete
+    await waitForRender(window);
     await captureScreenshot(window, 'malicious-html-escaped.png');
 
     console.log('\nScreenshot capture complete!');
@@ -178,10 +202,14 @@ async function run() {
 
 // Run when Electron is ready
 app.whenReady().then(async () => {
+  let exitCode = 0;
   try {
     await run();
+  } catch (error) {
+    exitCode = 1;
+    console.error('Screenshot capture failed:', error);
   } finally {
-    app.quit();
+    app.exit(exitCode);
   }
 });
 
