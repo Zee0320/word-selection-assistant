@@ -13,7 +13,9 @@ const {
   FORBIDDEN_VERIFICATION_TEXT,
   fileExists,
   findForbiddenPattern,
-  checkRequiredPatterns
+  checkRequiredPatterns,
+  readPngDimensions,
+  validatePngEvidence
 } = require('../scripts/audit-completed-issues.js');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -290,4 +292,45 @@ test('issue 2 worktree audit reflects BLOCKED status', () => {
   // Issue 2 verification explicitly says BLOCKED - needs screenshots
   assert.equal(result.passed, false);
   assert.ok(result.errors.some(e => e.includes('BLOCKED')));
+});
+
+test('validatePngEvidence rejects a 1x1 placeholder', () => {
+  const tempDir = createTempDir();
+  try {
+    const pngPath = path.join(tempDir, 'placeholder.png');
+    fs.writeFileSync(pngPath, Buffer.from(
+      '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489',
+      'hex'
+    ));
+
+    const result = validatePngEvidence(pngPath, { minWidth: 320, minHeight: 180, minBytes: 1024 });
+    assert.equal(result.valid, false);
+    assert.match(result.reason, /dimensions|size/i);
+  } finally {
+    cleanupTempDir(tempDir);
+  }
+});
+
+test('auditIssue rejects invalid required PNG evidence', () => {
+  const tempDir = createTempDir();
+  try {
+    const worktreePath = path.join(tempDir, 'issue-2');
+    fs.mkdirSync(path.join(worktreePath, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(worktreePath, 'code.js'), 'module.exports = {};');
+    fs.writeFileSync(path.join(worktreePath, 'docs', 'verification.md'), 'Changed Files\nPASS\nnpm test');
+    fs.writeFileSync(path.join(worktreePath, 'docs', 'evidence.png'), Buffer.alloc(67));
+
+    const result = auditIssue('2', {
+      root: 'issue-2',
+      verificationFile: 'docs/verification.md',
+      requiredFiles: ['code.js'],
+      requiredVerificationText: ['Changed Files', 'PASS', 'npm test'],
+      requiredPngEvidence: ['docs/evidence.png']
+    }, tempDir);
+
+    assert.equal(result.passed, false);
+    assert.ok(result.errors.some(error => error.includes('Invalid PNG evidence')));
+  } finally {
+    cleanupTempDir(tempDir);
+  }
 });

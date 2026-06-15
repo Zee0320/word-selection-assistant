@@ -45,6 +45,10 @@ const ISSUE_CONFIG = {
       'Changed Files',
       'PASS',
       'npm test'
+    ],
+    requiredPngEvidence: [
+      'docs/superpowers/verification/issue-2/markdown-panel.png',
+      'docs/superpowers/verification/issue-2/malicious-html-escaped.png'
     ]
   },
   '3': {
@@ -97,6 +101,53 @@ const ISSUE_CONFIG = {
     ]
   }
 };
+
+/**
+ * Read PNG dimensions from file
+ * @param {string} filePath - Path to PNG file
+ * @returns {{ bytes: number, width: number, height: number }}
+ * @throws {Error} if file is not a valid PNG
+ */
+function readPngDimensions(filePath) {
+  const bytes = fs.readFileSync(filePath);
+  const signature = bytes.subarray(0, 8).toString('hex');
+  if (signature !== '89504e470d0a1a0a') {
+    throw new Error('not a PNG file');
+  }
+  if (bytes.length < 24 || bytes.subarray(12, 16).toString('ascii') !== 'IHDR') {
+    throw new Error('missing PNG IHDR');
+  }
+  return {
+    bytes: bytes.length,
+    width: bytes.readUInt32BE(16),
+    height: bytes.readUInt32BE(20)
+  };
+}
+
+/**
+ * Validate PNG evidence file meets minimum requirements
+ * @param {string} filePath - Path to PNG file
+ * @param {object} limits - Minimum dimension requirements
+ * @param {number} limits.minWidth - Minimum width (default 320)
+ * @param {number} limits.minHeight - Minimum height (default 180)
+ * @param {number} limits.minBytes - Minimum file size in bytes (default 1024)
+ * @returns {{ valid: boolean, reason?: string, bytes?: number, width?: number, height?: number }}
+ */
+function validatePngEvidence(filePath, limits = {}) {
+  const minWidth = limits.minWidth || 320;
+  const minHeight = limits.minHeight || 180;
+  const minBytes = limits.minBytes || 1024;
+  try {
+    const info = readPngDimensions(filePath);
+    if (info.bytes < minBytes) return { valid: false, reason: `file size ${info.bytes} < ${minBytes}` };
+    if (info.width < minWidth || info.height < minHeight) {
+      return { valid: false, reason: `dimensions ${info.width}x${info.height} below ${minWidth}x${minHeight}` };
+    }
+    return { valid: true, ...info };
+  } catch (error) {
+    return { valid: false, reason: error.message };
+  }
+}
 
 /**
  * Check if a file exists
@@ -209,6 +260,19 @@ function auditIssue(issueNumber, config, projectRoot = '.') {
     }
   }
 
+  // Check 6: Required PNG evidence exists and is valid
+  for (const file of config.requiredPngEvidence || []) {
+    const fullPath = path.resolve(worktreePath, file);
+    if (!fs.existsSync(fullPath)) {
+      errors.push(`Required PNG evidence missing: ${file}`);
+      continue;
+    }
+    const validation = validatePngEvidence(fullPath);
+    if (!validation.valid) {
+      errors.push(`Invalid PNG evidence ${file}: ${validation.reason}`);
+    }
+  }
+
   return {
     passed: errors.length === 0,
     errors,
@@ -306,5 +370,7 @@ module.exports = {
   FORBIDDEN_VERIFICATION_TEXT,
   fileExists,
   findForbiddenPattern,
-  checkRequiredPatterns
+  checkRequiredPatterns,
+  readPngDimensions,
+  validatePngEvidence
 };
