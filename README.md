@@ -1,11 +1,11 @@
 # Word Selection Assistant
 
-Global word selection assistant built with Electron. On Windows, selecting text in any application opens a small floating toolbar for translation or AI chat. On Linux ARM64/UOS, the first supported flow focuses on the standalone AI chat window and asking AI with clipboard text from the tray.
+Global word selection assistant built with Electron. On Windows and UOS ARM64 X11, selecting text in another application opens a small floating toolbar for translation or AI chat. Other Linux environments use the standalone AI chat window and clipboard text from the tray.
 
 ## Features
 
 - Global text selection capture on Windows via `@mukea/uiohook-napi`
-- Linux ARM64/UOS deb packaging for the standalone AI chat flow
+- UOS ARM64 X11 automatic selection capture and Linux ARM64 deb packaging
 - Floating toolbar near the mouse cursor
 - Word and phrase lookup with an offline ECDICT SQLite database
 - Sentence translation through an OpenAI-compatible chat completions API
@@ -16,7 +16,7 @@ Global word selection assistant built with Electron. On Windows, selecting text 
 
 ## Requirements
 
-- Windows x64, or Linux ARM64/aarch64 for the UOS chat-first build
+- Windows x64, or UOS ARM64/aarch64 with an X11 desktop session
 - Node.js and npm
 - Native build tools required by Electron native modules
 - Local dictionary database at `assets/ecdict.db` for offline dictionary lookup
@@ -97,7 +97,7 @@ tests/          Local test and simulation helpers
 
 - `node_modules/`, `dist/`, `assets/ecdict.db`, `.agent/`, `.agents/`, `.claude/`, and `openspec/` are ignored.
 - After installing or changing native dependencies, run `npm run rebuild`. For UOS/Linux ARM64 packaging, use `npm run rebuild:linux:arm64`.
-- Automatic cross-application text capture is Windows-only in the first Linux ARM64 build. On UOS, use the tray action to ask AI with clipboard text.
+- Automatic cross-application text capture on Linux is limited to UOS ARM64 X11. Other Linux environments use the tray action to ask AI with clipboard text.
 - User settings are stored by `electron-store` in the app user data directory, not in this repository.
 
 ## UOS ARM64 X11 Capture

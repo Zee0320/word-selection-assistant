@@ -12,12 +12,12 @@ const SELECTION_SETTLE_MS = 160;
  * @returns {{ x: number, y: number } | null}
  */
 function parseXinputCoordinates(line) {
-  // Match patterns like "at (100, 200)" or "at(100, 200)"
-  const match = line.match(/at\s*\((\d+),\s*(\d+)\)/);
+  const match = line.match(/at\s*\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)/)
+    || line.match(/root:\s*(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)/i);
   if (!match) return null;
   return {
-    x: parseInt(match[1], 10),
-    y: parseInt(match[2], 10)
+    x: Number(match[1]),
+    y: Number(match[2])
   };
 }
 
@@ -27,7 +27,8 @@ function parseXinputCoordinates(line) {
  * @returns {string | null}
  */
 function parseXinputEvent(line) {
-  const match = line.match(/event\s+\d+:\s+(\w+)/);
+  const match = line.match(/event\s+\d+:\s+(\w+)/i)
+    || line.match(/EVENT type \d+ \(([^)]+)\)/);
   return match ? match[1] : null;
 }
 
@@ -37,8 +38,8 @@ function parseXinputEvent(line) {
  * @returns {number | null}
  */
 function parseXinputButton(line) {
-  // Match patterns like "ButtonPress (1)" or "ButtonRelease (2)"
-  const match = line.match(/Button(?:Press|Release)\s+\((\d+)\)/);
+  const match = line.match(/Button(?:Press|Release)\s+\((\d+)\)/)
+    || line.match(/^\s*detail:\s*(\d+)\s*$/i);
   return match ? parseInt(match[1], 10) : null;
 }
 
@@ -85,6 +86,8 @@ function createLinuxX11SelectionWatcher({
   let lastMouseUpX = null;
   let lastMouseUpY = null;
   let clickCount = 0;
+  let stdoutBuffer = '';
+  let currentEvent = null;
 
   function start() {
     if (xinputProcess) return;
@@ -94,7 +97,9 @@ function createLinuxX11SelectionWatcher({
       logger.log('[LinuxX11Watcher] Started xinput process');
 
       xinputProcess.stdout.on('data', (data) => {
-        const lines = data.toString().split('\n');
+        stdoutBuffer += data.toString();
+        const lines = stdoutBuffer.split(/\r?\n/);
+        stdoutBuffer = lines.pop() || '';
         for (const line of lines) {
           processXinputLine(line.trim());
         }
@@ -145,27 +150,42 @@ function createLinuxX11SelectionWatcher({
     if (!line) return;
 
     const eventType = parseXinputEvent(line);
+    if (eventType) {
+      currentEvent = {
+        type: eventType,
+        button: parseXinputButton(line),
+        coords: parseXinputCoordinates(line),
+        handled: false
+      };
+    } else if (currentEvent) {
+      currentEvent.button ??= parseXinputButton(line);
+      currentEvent.coords ??= parseXinputCoordinates(line);
+    }
 
-    if (eventType === 'ButtonPress') {
-      const button = parseXinputButton(line);
+    if (
+      !currentEvent ||
+      currentEvent.handled ||
+      currentEvent.button === null ||
+      !currentEvent.coords
+    ) {
+      return;
+    }
+
+    currentEvent.handled = true;
+    const { type, button, coords } = currentEvent;
+
+    if (type === 'ButtonPress') {
       // Only handle button 1 (left click)
       if (button !== 1) return;
 
-      const coords = parseXinputCoordinates(line);
-      if (coords) {
-        mouseDownX = coords.x;
-        mouseDownY = coords.y;
-      }
-    } else if (eventType === 'ButtonRelease') {
+      mouseDownX = coords.x;
+      mouseDownY = coords.y;
+    } else if (type === 'ButtonRelease') {
       if (!isEnabled) return;
       if (!xinputProcess) return; // Process was killed
 
-      const button = parseXinputButton(line);
       // Only handle button 1 (left click)
       if (button !== 1) return;
-
-      const coords = parseXinputCoordinates(line);
-      if (!coords) return;
 
       const { x, y } = coords;
       const now = Date.now();

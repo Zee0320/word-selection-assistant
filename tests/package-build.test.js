@@ -22,6 +22,9 @@ test('configures an arm64 deb package for Linux builds', () => {
   assert.equal(pkg.build.linux.maintainer, 'Zee0320 <Zee0320@users.noreply.github.com>');
   assert.ok(pkg.build.deb.depends.includes('libgbm1'));
   assert.ok(pkg.build.deb.depends.includes('libasound2'));
+  assert.ok(pkg.build.deb.depends.includes('xinput'));
+  assert.ok(pkg.build.deb.depends.includes('xdotool'));
+  assert.ok(pkg.build.deb.depends.includes('xclip'));
   assert.ok(pkg.build.deb.recommends.includes('libappindicator3-1'));
 });
 

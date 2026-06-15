@@ -65,6 +65,38 @@ test('detects drag gesture with distance >= 5px', async () => {
   watcher.stop();
 });
 
+test('detects drag from real multi-line xinput test-xi2 output', async () => {
+  const mockProcess = createMockXinputProcess();
+  const captured = [];
+
+  const { createLinuxX11SelectionWatcher } = require('../src/main/linux-x11-selection-watcher');
+  const watcher = createLinuxX11SelectionWatcher({
+    spawnXinput: () => mockProcess,
+    readSelectedText: async () => 'selected text',
+    onTextCaptured: (text, x, y) => captured.push({ text, x, y })
+  });
+
+  watcher.start();
+  mockProcess.stdout.write([
+    'EVENT type 4 (ButtonPress)',
+    '    device: 4 (4)',
+    '    detail: 1',
+    '    flags:',
+    '    root: 100.00/100.00',
+    'EVENT type 5 (ButtonRelease)',
+    '    device: 4 (4)',
+    '    detail: 1',
+    '    flags:',
+    '    root: 110.00/105.00',
+    ''
+  ].join('\n'));
+
+  await delay(200);
+
+  assert.deepEqual(captured, [{ text: 'selected text', x: 110, y: 105 }]);
+  watcher.stop();
+});
+
 test('ignores small drags < 5px', async () => {
   const mockProcess = createMockXinputProcess();
   const captured = [];
@@ -599,6 +631,9 @@ test('parseXinputCoordinates extracts coordinates from xinput output', () => {
   // With detail field
   const result3 = parseXinputCoordinates('event 2: ButtonPress (1) detail: 1 at (50, 75)');
   assert.deepEqual(result3, { x: 50, y: 75 });
+
+  const result4 = parseXinputCoordinates('    root: 1053.23/101.84');
+  assert.deepEqual(result4, { x: 1053.23, y: 101.84 });
 });
 
 test('parseXinputEvent extracts event type from xinput output', () => {
@@ -607,6 +642,8 @@ test('parseXinputEvent extracts event type from xinput output', () => {
   assert.equal(parseXinputEvent('event 0: ButtonPress (1) at (100, 200)'), 'ButtonPress');
   assert.equal(parseXinputEvent('event 1: ButtonRelease (1) at (350, 450)'), 'ButtonRelease');
   assert.equal(parseXinputEvent('event 2: Motion (0) at (100, 200)'), 'Motion');
+  assert.equal(parseXinputEvent('EVENT type 4 (ButtonPress)'), 'ButtonPress');
+  assert.equal(parseXinputEvent('EVENT type 5 (ButtonRelease)'), 'ButtonRelease');
   assert.equal(parseXinputEvent('some random line'), null);
 });
 
@@ -616,6 +653,7 @@ test('parseXinputButton extracts button number from xinput output', () => {
   assert.equal(parseXinputButton('event 0: ButtonPress (1) at (100, 200)'), 1);
   assert.equal(parseXinputButton('event 1: ButtonRelease (2) at (350, 450)'), 2);
   assert.equal(parseXinputButton('event 2: ButtonPress (3) detail: 1 at (50, 75)'), 3);
+  assert.equal(parseXinputButton('    detail: 1'), 1);
   assert.equal(parseXinputButton('some random line'), null);
 });
 
