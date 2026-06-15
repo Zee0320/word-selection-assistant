@@ -88,7 +88,18 @@ function loadFloatingWindowWithFakes() {
   }
 }
 
-// These tests verify the NEW behavior: no pending window, only show after confirmed text
+test('pending toolbar does not enable interaction before text capture resolves', async () => {
+  const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes();
+
+  try {
+    floatingWindow.showPendingWindow(100, 100, 123, 1);
+    await delay(150);
+
+    assert.deepEqual(createdWindows[0].focusableCalls, [false]);
+  } finally {
+    floatingWindow.hideWindow();
+  }
+});
 
 test('resolved toolbar enables interaction after passive show delay', async () => {
   const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes();
@@ -103,68 +114,43 @@ test('resolved toolbar enables interaction after passive show delay', async () =
   }
 });
 
-test('showWindow returns false for empty string', () => {
-  const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes();
-
-  const result = floatingWindow.showWindow('', 100, 100);
-
-  assert.equal(result, false);
-  assert.equal(createdWindows.length, 0);
-});
-
-test('showWindow returns false for whitespace-only text', () => {
-  const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes();
-
-  const result = floatingWindow.showWindow('   \t\n  ', 100, 100);
-
-  assert.equal(result, false);
-  assert.equal(createdWindows.length, 0);
-});
-
-test('showWindow returns true and shows window for valid text', async () => {
-  const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes();
+test('pending toolbar click reports the mouse gesture as consumed', () => {
+  const { floatingWindow } = loadFloatingWindowWithFakes();
 
   try {
-    const result = floatingWindow.showWindow('hello world', 100, 100);
-    await delay(10);
+    floatingWindow.showPendingWindow(100, 100, 123, 1);
 
-    assert.equal(result, true);
-    assert.equal(createdWindows.length, 1);
-    assert.equal(createdWindows[0].isVisible(), true);
+    assert.equal(floatingWindow.requestHide(120, 120), true);
   } finally {
     floatingWindow.hideWindow();
   }
 });
 
-test('showWindow normalizes text before sending to renderer', async () => {
-  const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes();
+test('pending toolbar interaction restores the original foreground window', () => {
+  const { floatingWindow, restoredHandles } = loadFloatingWindowWithFakes();
 
   try {
-    floatingWindow.showWindow('  trimmed text  ', 100, 100);
-    await delay(10);
+    floatingWindow.showPendingWindow(100, 100, 123, 1);
+    const restoreCountAfterShow = restoredHandles.length;
 
-    // The webContents.send mock doesn't capture calls, but we verify the window was shown
-    // which means normalization passed and text was sent
-    assert.equal(createdWindows[0].isVisible(), true);
+    floatingWindow.requestHide(120, 120);
+
+    assert.equal(restoredHandles.length, restoreCountAfterShow + 1);
+    assert.equal(restoredHandles.at(-1), 123);
   } finally {
     floatingWindow.hideWindow();
   }
 });
 
-test('showWindow does not create window when text is null', () => {
+test('pending toolbar stays visible long enough for slow text capture', async () => {
   const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes();
 
-  const result = floatingWindow.showWindow(null, 100, 100);
+  try {
+    floatingWindow.showPendingWindow(100, 100, 123, 1);
+    await delay(1800);
 
-  assert.equal(result, false);
-  assert.equal(createdWindows.length, 0);
-});
-
-test('showWindow does not create window when text is undefined', () => {
-  const { floatingWindow, createdWindows } = loadFloatingWindowWithFakes();
-
-  const result = floatingWindow.showWindow(undefined, 100, 100);
-
-  assert.equal(result, false);
-  assert.equal(createdWindows.length, 0);
+    assert.equal(createdWindows[0].isVisible(), true);
+  } finally {
+    floatingWindow.hideWindow();
+  }
 });
