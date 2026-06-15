@@ -1,0 +1,22 @@
+Issue 6 verification audit
+Date: 2026-06-15
+Branch: worktree-issue-6-empty-selection
+Pre-documentation HEAD: 06565317097f406f21e1e414de47dee820a7f72a
+
+Static check:
+rg -n "onCapturePending|onCaptureMissed|showPendingWindow|hidePendingWindow" src/main/index.js
+Result: no matches
+
+Focused tests:
+node --test tests/text-capture.test.js tests/text-capture-ignored-gesture.test.js tests/floating-window.test.js tests/floating-window-hit-test.test.js tests/floating-renderer-ui.test.js
+Result: PASS, 51 tests, 0 failures
+
+Full tests:
+npm test
+Result: PASS, 135 tests, 0 failures
+
+npm test
+Result: PASS, 135 tests, 0 failures
+
+Manual application interaction:
+NOT RUN. Cross-application Notepad/browser mouse-selection evidence requires an interactive Windows verification pass. See manual-windows-results.md.
