@@ -7,8 +7,6 @@ const { readSelectedTextWithFallback } = require('./selected-text-capture-strate
 
 let isEnabled = true;
 let onTextCaptured = null;
-let onCapturePending = null;
-let onCaptureMissed = null;
 let onMouseDownCallback = null;
 let shouldIgnoreWindow = null;
 let activeCaptureId = 0;
@@ -53,14 +51,11 @@ function setShouldIgnoreWindow(cb) {
 }
 
 function init(callbackOrHandlers) {
+  // Support both callback function and object format for backward compatibility
   if (typeof callbackOrHandlers === 'function') {
     onTextCaptured = callbackOrHandlers;
-    onCapturePending = null;
-    onCaptureMissed = null;
   } else {
     onTextCaptured = callbackOrHandlers?.onTextCaptured || null;
-    onCapturePending = callbackOrHandlers?.onCapturePending || null;
-    onCaptureMissed = callbackOrHandlers?.onCaptureMissed || null;
   }
 
   const hook = getHookApi();
@@ -359,25 +354,25 @@ async function captureSelectedTextFromClipboard({
   clipboardApi = clipboard,
   copySelection = copySelectionToClipboard,
   logger = console,
-  waitTimeout = CLIPBOARD_WAIT_MS
+  waitTimeout = CLIPBOARD_WAIT_MS,
+  sentinel = null
 } = {}) {
   const snapshot = createClipboardSnapshot(clipboardApi, logger);
   logger.log?.('[TextCapture] Backup clipboard:', snapshot.text ? `"${snapshot.text.substring(0, 50)}"` : '(empty)');
 
-  let selectedText = '';
+  const actualSentinel = sentinel || `__WSA_CAPTURE_${Date.now()}_${Math.random().toString(16).slice(2)}__`;
   try {
-    clipboardApi?.writeText?.('');
+    clipboardApi.writeText(actualSentinel);
     copySelection();
-    selectedText = (await waitForClipboardChange('', waitTimeout, clipboardApi)).trim();
+    const copied = await waitForClipboardChange(actualSentinel, waitTimeout, clipboardApi);
+    return copied === actualSentinel ? '' : String(copied || '').trim();
   } catch (err) {
     logger.warn?.('[TextCapture] Capture selected text failed:', err.message || err);
-    selectedText = '';
+    return '';
   } finally {
     const restored = restoreClipboardSnapshot(snapshot, clipboardApi, logger);
     logger.log?.('[TextCapture] Clipboard restore:', restored ? 'SUCCESS' : 'FAILED');
   }
-
-  return selectedText;
 }
 
 async function waitForClipboardChange(prevText, timeout, clipboardApi = clipboard) {

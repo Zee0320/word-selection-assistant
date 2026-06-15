@@ -42,10 +42,8 @@ app.whenReady().then(async () => {
   tray.init();
 
   // 初始化文本捕获
-  textCapture.init({
-    onTextCaptured: (text, x, y, activeWindowHandle, captureId) => {
-      floatingWindow.showWindow(text, x, y, activeWindowHandle, { captureId });
-    }
+  textCapture.init((text, x, y, activeWindowHandle, captureId) => {
+    floatingWindow.showWindow(text, x, y, activeWindowHandle, { captureId });
   });
   textCapture.setShouldIgnoreWindow((windowHandle) => {
     if (!windowHandle) return false;
