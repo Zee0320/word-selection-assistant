@@ -34,11 +34,29 @@ function createClassList(initial = '') {
 
 function createElement(id, initialClass = '') {
   const listeners = new Map();
+  const classes = new Set(initialClass.split(/\s+/).filter(Boolean));
+
+  const classList = {
+    add(...names) { names.forEach(name => classes.add(name)); },
+    remove(...names) { names.forEach(name => classes.delete(name)); },
+    contains(name) { return classes.has(name); },
+    toggle(name, force) {
+      const shouldAdd = force === undefined ? !classes.has(name) : Boolean(force);
+      if (shouldAdd) classes.add(name);
+      else classes.delete(name);
+      return shouldAdd;
+    }
+  };
 
   return {
     id,
     style: {},
-    classList: createClassList(initialClass),
+    get className() { return [...classes].join(' '); },
+    set className(value) {
+      classes.clear();
+      value.split(/\s+/).filter(Boolean).forEach(c => classes.add(c));
+    },
+    classList,
     attributes: {},
     children: [],
     value: '',
@@ -66,18 +84,25 @@ function createElement(id, initialClass = '') {
       }
     },
     appendChild(child) {
+      child.parentElement = this;
       this.children.push(child);
       this.lastElementChild = child;
       return child;
     },
-    remove() {},
+    remove() {
+      if (!this.parentElement) return;
+      this.parentElement.children = this.parentElement.children.filter(child => child !== this);
+      this.parentElement.lastElementChild = this.parentElement.children.at(-1) || null;
+      this.parentElement = null;
+    },
+    focus() {},
     closest() {
       return null;
     }
   };
 }
 
-function createRendererHarness() {
+function createRendererHarness(options = {}) {
   const ids = [
     'toolbar',
     'btn-translate',
@@ -139,9 +164,9 @@ function createRendererHarness() {
     onTranslateChunk() {},
     onTranslateDone() {},
     onTranslateError() {},
-    onAiChatChunk() {},
-    onAiChatDone() {},
-    onAiChatError() {},
+    onAiChatChunk(cb) { callbacks.aiChatChunk = cb; },
+    onAiChatDone(cb) { callbacks.aiChatDone = cb; },
+    onAiChatError(cb) { callbacks.aiChatError = cb; },
     notifyInteraction() { calls.push('notifyInteraction'); },
     moveWindow() { calls.push('moveWindow'); },
     collapseWindow() { calls.push('collapseWindow'); },
@@ -151,7 +176,28 @@ function createRendererHarness() {
     classifyText: async () => ({ type: 'word', isChinese: false }),
     translateWord: async () => null,
     translateSentence() {},
-    aiChatSend() {},
+    aiChatSend(selectedText, messages) { calls.push({ type: 'aiChatSend', selectedText, messages }); },
+    createFloatingConversation: async (payload) => {
+      if (options.createFloatingConversation) {
+        return options.createFloatingConversation(payload, calls);
+      }
+      calls.push({ type: 'createFloatingConversation', payload });
+      return {
+        conversation: {
+          id: 'conv-floating',
+          title: payload.userMessage,
+          metadata: { selectedContext: payload.selectedText, source: 'floating' },
+          messages: [{ role: 'user', content: payload.userMessage }]
+        }
+      };
+    },
+    saveFloatingConversation: async (conversation) => {
+      if (options.saveFloatingConversation) {
+        return options.saveFloatingConversation(conversation, calls);
+      }
+      calls.push({ type: 'saveFloatingConversation', conversation });
+      return { conversation };
+    },
     parseMarkdown(text) { return text; }
   };
 
@@ -204,4 +250,108 @@ test('final show-toolbar after pending enables translate and chat actions', () =
   assert.equal(elements['btn-chat'].disabled, false);
   assert.equal(elements['btn-chat'].classList.contains('toolbar-btn-disabled'), false);
   assert.equal(elements['btn-chat'].getAttribute('aria-disabled'), 'false');
+});
+
+test('floating chat creates synced conversation before sending AI request', async () => {
+  const { callbacks, calls, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected context',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-input'].value = 'Explain this';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  // Wait for async operations
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(calls[0], 'notifyInteraction');
+  assert.ok(calls.some(call => call.type === 'createFloatingConversation'));
+  assert.ok(calls.some(call => call.type === 'aiChatSend'));
+
+  const createCall = calls.find(call => call.type === 'createFloatingConversation');
+  assert.equal(createCall.payload.selectedText, 'Selected context');
+  assert.equal(createCall.payload.userMessage, 'Explain this');
+});
+
+test('floating chat saves assistant message to the synced conversation on done', async () => {
+  const { callbacks, calls, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected context',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-input'].value = 'Explain this';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  // Wait for async operations
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  callbacks.aiChatChunk('Answer');
+  callbacks.aiChatDone();
+
+  await new Promise(resolve => setImmediate(resolve));
+
+  const saveCall = calls.find(call => call.type === 'saveFloatingConversation');
+  assert.ok(saveCall);
+  assert.equal(saveCall.conversation.id, 'conv-floating');
+  assert.equal(saveCall.conversation.messages[0].role, 'user');
+  assert.equal(saveCall.conversation.messages[1].role, 'assistant');
+  assert.equal(saveCall.conversation.messages[1].content, 'Answer');
+  assert.equal(saveCall.conversation.metadata.selectedContext, 'Selected context');
+});
+
+test('floating chat removes unsent user bubble when synced conversation creation fails', async () => {
+  const { calls, elements, callbacks } = createRendererHarness({
+    createFloatingConversation: async (payload, callLog) => {
+      callLog.push({ type: 'createFloatingConversation', payload });
+      throw new Error('store failed');
+    }
+  });
+
+  callbacks.showToolbar({
+    text: 'Selected context',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-input'].value = 'Explain this';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  // aiChatSend should not be called
+  assert.equal(calls.some(call => call.type === 'aiChatSend'), false, 'aiChatSend should not be called');
+  // User message should be removed
+  const userMessages = elements['chat-messages'].children.filter(child => child.classList && child.classList.contains('user'));
+  assert.equal(userMessages.length, 0, 'User message should be removed');
+  // Error message should be shown
+  const errorMessages = elements['chat-messages'].children.filter(child => child.classList && child.classList.contains('message-error'));
+  assert.ok(errorMessages.length > 0, 'Expected error message to be shown');
 });

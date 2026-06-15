@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   saveConversation: (conversation) => ipcRenderer.invoke('standalone-chat-save-conversation', conversation),
   selectConversation: (conversationId) => ipcRenderer.invoke('standalone-chat-select-conversation', conversationId),
   deleteConversation: (conversationId) => ipcRenderer.invoke('standalone-chat-delete-conversation', conversationId),
-  sendChat: (conversationId, messages) => ipcRenderer.send('standalone-chat-send', { conversationId, messages }),
+  sendChat: (conversationId, messages, selectedText = '') => ipcRenderer.send('standalone-chat-send', { conversationId, messages, selectedText }),
   onChatChunk: (cb) => ipcRenderer.on('standalone-chat-stream-chunk', (event, payload) => cb(payload)),
   onChatDone: (cb) => ipcRenderer.on('standalone-chat-stream-done', (event, payload) => cb(payload)),
   onChatError: (cb) => ipcRenderer.on('standalone-chat-stream-error', (event, payload) => cb(payload)),

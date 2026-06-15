@@ -9,10 +9,12 @@ const settingsWindow = require('./settings-window');
 const standaloneChatWindow = require('./standalone-chat-window');
 const tray = require('./tray');
 const {
+  createFloatingChatConversation,
   createStandaloneConversation,
   deleteStandaloneConversation,
   getSettings,
   getStandaloneChatState,
+  saveFloatingChatConversation,
   saveSettings,
   saveStandaloneConversation,
   selectStandaloneConversation
@@ -181,7 +183,15 @@ ipcMain.handle('standalone-chat-delete-conversation', (event, conversationId) =>
   return deleteStandaloneConversation(conversationId);
 });
 
-ipcMain.on('standalone-chat-send', (event, { conversationId, messages }) => {
+ipcMain.handle('floating-chat-create-conversation', (event, payload) => {
+  return createFloatingChatConversation(payload);
+});
+
+ipcMain.handle('floating-chat-save-conversation', (event, conversation) => {
+  return saveFloatingChatConversation(conversation);
+});
+
+ipcMain.on('standalone-chat-send', (event, { conversationId, messages, selectedText = '' }) => {
   const settings = getSettings();
   const isGateway = settings.connectionMode === 'gateway';
   if (!settings.apiBaseUrl || !settings.chatModel || (!isGateway && !settings.apiKey)) {
@@ -193,7 +203,7 @@ ipcMain.on('standalone-chat-send', (event, { conversationId, messages }) => {
   }
 
   aiChat(
-    '',
+    selectedText,
     messages,
     (chunk) => event.sender.send('standalone-chat-stream-chunk', { conversationId, chunk }),
     () => event.sender.send('standalone-chat-stream-done', { conversationId }),

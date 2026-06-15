@@ -6,6 +6,7 @@ const {
   applyHistoryUpdate,
   createConversation,
   deleteConversation,
+  getConversationSelectedContext,
   normalizeConversation,
   resolveActiveConversation,
   sortConversations,
@@ -246,12 +247,46 @@ function deleteStandaloneConversation(conversationId) {
   return getStandaloneChatState();
 }
 
+function createFloatingChatConversation({ selectedText = '', userMessage = '' } = {}) {
+  const conversation = createConversation(userMessage, {
+    metadata: {
+      selectedContext: selectedText,
+      source: 'floating'
+    }
+  });
+  const conversations = upsertConversation(readConversations(), conversation);
+  writeConversations(conversations, conversation.id);
+  return {
+    ...getStandaloneChatState(),
+    conversation: normalizeConversation(conversation)
+  };
+}
+
+function saveFloatingChatConversation(conversation) {
+  const normalized = normalizeConversation({
+    ...conversation,
+    metadata: {
+      ...(conversation?.metadata || {}),
+      selectedContext: getConversationSelectedContext(conversation),
+      source: 'floating'
+    }
+  });
+  const conversations = upsertConversation(readConversations(), normalized);
+  writeConversations(conversations, normalized.id);
+  return {
+    ...getStandaloneChatState(),
+    conversation: normalized
+  };
+}
+
 module.exports = {
   appendStandaloneMessages,
+  createFloatingChatConversation,
   createStandaloneConversation,
   deleteStandaloneConversation,
   getSettings,
   getStandaloneChatState,
+  saveFloatingChatConversation,
   saveSettings,
   saveStandaloneConversation,
   selectStandaloneConversation
