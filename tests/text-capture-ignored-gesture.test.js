@@ -80,23 +80,19 @@ test('ignored mouse gesture during pending capture does not cancel original text
   const capturePromise = new Promise(resolve => {
     resolveCapture = resolve;
   });
-  let resolveCaptured;
-  const capturedPromise = new Promise(resolve => {
-    resolveCaptured = resolve;
-  });
   const { textCapture, handlers, restore } = loadTextCaptureWithFakes({
     readSelectedText: async () => capturePromise
   });
   const capturedTexts = [];
+  const missedCaptures = [];
 
   try {
     textCapture.init({
       onTextCaptured: text => {
         capturedTexts.push(text);
-        resolveCaptured();
       },
       onCapturePending: () => {},
-      onCaptureMissed: () => {}
+      onCaptureMissed: captureId => missedCaptures.push(captureId)
     });
     textCapture.setShouldIgnoreWindow(() => false);
     textCapture.setOnMouseDown((x, y) => x === 12 && y === 0);
@@ -110,9 +106,9 @@ test('ignored mouse gesture during pending capture does not cancel original text
     assert.deepEqual(capturedTexts, []);
 
     resolveCapture('hello');
-    await capturedPromise;
     await originalCapture;
     assert.deepEqual(capturedTexts, ['hello']);
+    assert.deepEqual(missedCaptures, []);
   } finally {
     restore();
   }
