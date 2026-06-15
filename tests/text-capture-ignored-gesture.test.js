@@ -76,33 +76,50 @@ function loadTextCaptureWithFakes({
 }
 
 test('ignored mouse gesture during pending capture does not cancel original text capture', async () => {
-  let originalMouseUpAt = 0;
+  // Deferred promise to control when the capture resolves
+  let resolveCapture;
+  const capturePromise = new Promise(resolve => { resolveCapture = resolve; });
+
   const { textCapture, handlers, restore } = loadTextCaptureWithFakes({
-    readSelectedText: async () => Date.now() - originalMouseUpAt < 200 ? 'hello' : ''
+    readSelectedText: async () => capturePromise
   });
   const capturedTexts = [];
 
+  // Promise that resolves when onTextCaptured is called
+  let resolveTextCaptured;
+  const textCapturedPromise = new Promise(resolve => { resolveTextCaptured = resolve; });
+
   try {
     textCapture.init({
-      onTextCaptured: text => capturedTexts.push(text),
+      onTextCaptured: text => {
+        capturedTexts.push(text);
+        resolveTextCaptured();
+      },
       onCapturePending: () => {},
       onCaptureMissed: () => {}
     });
     textCapture.setShouldIgnoreWindow(() => false);
     textCapture.setOnMouseDown((x, y) => x === 12 && y === 0);
 
+    // Start the original capture
     handlers.mousedown({ x: 0, y: 0 });
-    originalMouseUpAt = Date.now();
     handlers.mouseup({ x: 10, y: 0 });
 
-    await delay(50);
-
+    // Trigger the ignored gesture while capture is pending
     handlers.mousedown({ x: 12, y: 0 });
     handlers.mouseup({ x: 12, y: 0 });
 
-    await delay(250);
+    // Prove the ignored gesture completed without resolving the capture
+    assert.deepEqual(capturedTexts, [], 'capture should not have completed yet');
 
-    assert.deepEqual(capturedTexts, ['hello']);
+    // Now resolve the capture
+    resolveCapture('hello');
+
+    // Wait for onTextCaptured to be called
+    await textCapturedPromise;
+
+    // The original text should be captured
+    assert.deepEqual(capturedTexts, ['hello'], 'original capture should complete');
   } finally {
     restore();
   }
