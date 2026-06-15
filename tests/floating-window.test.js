@@ -23,7 +23,10 @@ function loadFloatingWindowWithFakes() {
       this.webContents = {
         isLoading: () => false,
         send: () => {},
-        once: () => {}
+        once: () => {},
+        on: () => {},
+        setWindowOpenHandler: () => {},
+        getURL: () => 'file:///app/renderer/floating/index.html'
       };
       createdWindows.push(this);
     }
