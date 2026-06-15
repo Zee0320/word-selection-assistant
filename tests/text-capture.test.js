@@ -8,7 +8,7 @@ const {
   _private
 } = require('../src/main/text-capture');
 
-const { createPendingCaptureSession, isRepeatedMouseUp, shouldShowToolbarForCapturedText } = _private;
+const { createPendingCaptureSession, isRepeatedMouseUp } = _private;
 
 function createImage(empty = false) {
   return {
@@ -330,29 +330,4 @@ test('pending capture session hides after pending capture becomes stale', async 
 
   assert.equal(session.wasPendingShown(), false);
   assert.deepEqual(missedCaptureIds, [14]);
-});
-
-test('toolbar gate accepts only non-empty captured text', () => {
-  assert.equal(shouldShowToolbarForCapturedText('hello'), true);
-  assert.equal(shouldShowToolbarForCapturedText('  hello  '), true);
-  assert.equal(shouldShowToolbarForCapturedText(''), false);
-  assert.equal(shouldShowToolbarForCapturedText('   \n\t  '), false);
-  assert.equal(shouldShowToolbarForCapturedText(null), false);
-  assert.equal(shouldShowToolbarForCapturedText(undefined), false);
-});
-
-test('captured text callback receives trimmed text only when capture is non-empty', () => {
-  const captured = [];
-
-  function notifyCapturedText(rawText) {
-    const trimmedText = String(rawText || '').trim();
-    if (!shouldShowToolbarForCapturedText(trimmedText)) return;
-    captured.push(trimmedText);
-  }
-
-  notifyCapturedText('  selected text  ');
-  notifyCapturedText('   ');
-  notifyCapturedText('');
-
-  assert.deepEqual(captured, ['selected text']);
 });

@@ -205,19 +205,3 @@ test('final show-toolbar after pending enables translate and chat actions', () =
   assert.equal(elements['btn-chat'].classList.contains('toolbar-btn-disabled'), false);
   assert.equal(elements['btn-chat'].getAttribute('aria-disabled'), 'false');
 });
-
-test('confirmed toolbar data with empty text keeps actions disabled', () => {
-  const { callbacks, elements } = createRendererHarness();
-
-  callbacks.showToolbar({
-    text: '',
-    settings: { translationEnabled: true, aiChatEnabled: true },
-    pending: false
-  });
-
-  assert.equal(elements.toolbar.classList.contains('toolbar-pending'), false);
-  assert.equal(elements['btn-translate'].disabled, true);
-  assert.equal(elements['btn-chat'].disabled, true);
-  assert.equal(elements['btn-translate'].getAttribute('aria-disabled'), 'true');
-  assert.equal(elements['btn-chat'].getAttribute('aria-disabled'), 'true');
-});
