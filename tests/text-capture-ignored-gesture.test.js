@@ -76,15 +76,25 @@ function loadTextCaptureWithFakes({
 }
 
 test('ignored mouse gesture during pending capture does not cancel original text capture', async () => {
-  let originalMouseUpAt = 0;
+  let resolveCapture;
+  const capturePromise = new Promise(resolve => {
+    resolveCapture = resolve;
+  });
+  let resolveCaptured;
+  const capturedPromise = new Promise(resolve => {
+    resolveCaptured = resolve;
+  });
   const { textCapture, handlers, restore } = loadTextCaptureWithFakes({
-    readSelectedText: async () => Date.now() - originalMouseUpAt < 200 ? 'hello' : ''
+    readSelectedText: async () => capturePromise
   });
   const capturedTexts = [];
 
   try {
     textCapture.init({
-      onTextCaptured: text => capturedTexts.push(text),
+      onTextCaptured: text => {
+        capturedTexts.push(text);
+        resolveCaptured();
+      },
       onCapturePending: () => {},
       onCaptureMissed: () => {}
     });
@@ -92,16 +102,16 @@ test('ignored mouse gesture during pending capture does not cancel original text
     textCapture.setOnMouseDown((x, y) => x === 12 && y === 0);
 
     handlers.mousedown({ x: 0, y: 0 });
-    originalMouseUpAt = Date.now();
-    handlers.mouseup({ x: 10, y: 0 });
-
-    await delay(50);
+    const originalCapture = handlers.mouseup({ x: 10, y: 0 });
 
     handlers.mousedown({ x: 12, y: 0 });
     handlers.mouseup({ x: 12, y: 0 });
 
-    await delay(250);
+    assert.deepEqual(capturedTexts, []);
 
+    resolveCapture('hello');
+    await capturedPromise;
+    await originalCapture;
     assert.deepEqual(capturedTexts, ['hello']);
   } finally {
     restore();

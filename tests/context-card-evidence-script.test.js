@@ -23,3 +23,17 @@ test('capture script uses BrowserWindow capturePage', () => {
   assert.match(script, /capturePage/);
   assert.match(script, /BrowserWindow/);
 });
+
+test('capture script has committed mock preload dependency', () => {
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'capture-context-card-evidence.js');
+  const preloadPath = path.join(__dirname, '..', 'scripts', 'capture-mock-preload.js');
+
+  assert.ok(fs.existsSync(scriptPath), 'capture script should exist');
+  assert.ok(fs.existsSync(preloadPath), 'mock preload should exist');
+
+  const script = fs.readFileSync(scriptPath, 'utf8');
+  const preload = fs.readFileSync(preloadPath, 'utf8');
+
+  assert.match(script, /capture-mock-preload\.js/);
+  assert.match(preload, /contextBridge\.exposeInMainWorld/);
+});
