@@ -10,16 +10,10 @@ let isExpanded = false;
 let isPinned = false;
 let enableInteractionTimer = null;
 let activeCaptureId = null;
-let pendingWatchdogTimer = null;
-let isPendingToolbarVisible = false;
-let lastPendingInteractionTime = 0;
-let pendingRestoreFocusHandle = null;
 
 // 显示时间戳，用于防止 mousedown 事件在 show 之后立刻隐藏
 let lastShowTime = 0;
 const SHOW_GRACE_MS = 300; // 显示后 300ms 内不响应 mousedown 隐藏
-const PENDING_WATCHDOG_MS = 6000;
-const PENDING_INTERACTION_HOLD_MS = 1200;
 
 function getOrCreateWindow() {
   if (floatingWin && !floatingWin.isDestroyed()) {
@@ -60,35 +54,19 @@ function getOrCreateWindow() {
   return floatingWin;
 }
 
-function showPendingWindow(mouseX, mouseY, restoreFocusHandle = null, captureId = null) {
-  if (isPinned && isExpanded) {
-    return;
-  }
-  activeCaptureId = captureId;
-  pendingRestoreFocusHandle = restoreFocusHandle;
-  showWindow('', mouseX, mouseY, restoreFocusHandle, { pending: true, captureId });
-  startPendingWatchdog(captureId);
-}
-
 function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {}) {
   console.log(`[showWindow] text=${text}, x=${mouseX}, y=${mouseY}`);
+  const normalizedText = String(text || '').trim();
+  if (!normalizedText) return false;
+
   const settings = getSettings();
 
   if (!settings.translationEnabled && !settings.aiChatEnabled) {
-    return;
+    return false;
   }
 
-  const isPending = Boolean(options.pending);
-  isPendingToolbarVisible = isPending;
-  if (!isPending) {
-    lastPendingInteractionTime = 0;
-    pendingRestoreFocusHandle = null;
-  }
   if (options.captureId !== undefined) {
     activeCaptureId = options.captureId;
-  }
-  if (!isPending) {
-    clearPendingWatchdog();
   }
 
   if (!isPinned) {
@@ -112,10 +90,7 @@ function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {
   }
 
   const sendAndShow = () => {
-    if (isPending && options.captureId != null && activeCaptureId !== options.captureId) {
-      return;
-    }
-    win.webContents.send('show-toolbar', { text, settings, pinned: isPinned, expanded: isExpanded, pending: isPending });
+    win.webContents.send('show-toolbar', { text: normalizedText, settings, pinned: isPinned, expanded: isExpanded });
     if (isPinned && isExpanded) {
       if (!win.isVisible()) win.showInactive();
       windowFocus.restoreForegroundWindow(restoreFocusHandle);
@@ -125,16 +100,14 @@ function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {
       // Some apps, especially WeChat, drop their editor focus if another window is activated.
       win.showInactive();
       windowFocus.restoreForegroundWindow(restoreFocusHandle);
-      if (!isPending) {
-        enableInteractionTimer = setTimeout(() => {
-          enableInteractionTimer = null;
-          if (!floatingWin || floatingWin.isDestroyed()) return;
-          // Re-enable clicks after the passive show. Keeping focusable=false permanently
-          // prevents toolbar button clicks from reaching the renderer reliably on Windows.
-          floatingWin.setFocusable(true);
-          windowFocus.restoreForegroundWindow(restoreFocusHandle);
-        }, 120);
-      }
+      enableInteractionTimer = setTimeout(() => {
+        enableInteractionTimer = null;
+        if (!floatingWin || floatingWin.isDestroyed()) return;
+        // Re-enable clicks after the passive show. Keeping focusable=false permanently
+        // prevents toolbar button clicks from reaching the renderer reliably on Windows.
+        floatingWin.setFocusable(true);
+        windowFocus.restoreForegroundWindow(restoreFocusHandle);
+      }, 120);
     }
     lastShowTime = Date.now();
     console.log('[showWindow] Window shown');
@@ -145,16 +118,13 @@ function showWindow(text, mouseX, mouseY, restoreFocusHandle = null, options = {
   } else {
     sendAndShow();
   }
+  return true;
 }
 
 function hideWindow() {
   console.log(`[hideWindow] Called`);
   isExpanded = false;
   isPinned = false;
-  isPendingToolbarVisible = false;
-  lastPendingInteractionTime = 0;
-  pendingRestoreFocusHandle = null;
-  clearPendingWatchdog();
   if (enableInteractionTimer) {
     clearTimeout(enableInteractionTimer);
     enableInteractionTimer = null;
@@ -163,41 +133,6 @@ function hideWindow() {
     floatingWin.hide();
     floatingWin.setFocusable(false);
     floatingWin.webContents.send('reset-ui');
-  }
-}
-
-function hidePendingWindow(captureId = null) {
-  if (captureId !== null && activeCaptureId !== captureId) {
-    return;
-  }
-  if (isPinned || isExpanded) {
-    return;
-  }
-  if (isPendingToolbarVisible && Date.now() - lastPendingInteractionTime < PENDING_INTERACTION_HOLD_MS) {
-    console.log('[hidePendingWindow] Recent pending interaction, keeping visible');
-    startPendingWatchdog(captureId);
-    return;
-  }
-  isPendingToolbarVisible = false;
-  lastPendingInteractionTime = 0;
-  pendingRestoreFocusHandle = null;
-  clearPendingWatchdog();
-  activeCaptureId = null;
-  hideWindow();
-}
-
-function startPendingWatchdog(captureId = null) {
-  clearPendingWatchdog();
-  pendingWatchdogTimer = setTimeout(() => {
-    pendingWatchdogTimer = null;
-    hidePendingWindow(captureId);
-  }, PENDING_WATCHDOG_MS);
-}
-
-function clearPendingWatchdog() {
-  if (pendingWatchdogTimer) {
-    clearTimeout(pendingWatchdogTimer);
-    pendingWatchdogTimer = null;
   }
 }
 
@@ -217,12 +152,6 @@ function requestHide(mouseX = null, mouseY = null) {
   if (isExpanded && isPinned) {
     console.log('[requestHide] Window is pinned, ignoring');
     return isInsideWindow;
-  }
-  if (isPendingToolbarVisible) {
-    console.log('[requestHide] Pending toolbar is visible, keeping visible');
-    markPendingInteraction();
-    extendGrace();
-    return true;
   }
   if (isInsideWindow) {
     console.log('[requestHide] Click inside floating window, keeping visible');
@@ -247,10 +176,6 @@ function requestHide(mouseX = null, mouseY = null) {
  */
 function extendGrace() {
   lastShowTime = Date.now();
-  if (isPendingToolbarVisible) {
-    markPendingInteraction();
-    restorePendingForegroundWindow();
-  }
   if (pendingHideTimer) {
     clearTimeout(pendingHideTimer);
     pendingHideTimer = null;
@@ -293,9 +218,6 @@ function collapseWindow() {
   console.log(`[collapseWindow] Called`);
   isExpanded = false;
   isPinned = false;
-  isPendingToolbarVisible = false;
-  lastPendingInteractionTime = 0;
-  pendingRestoreFocusHandle = null;
   if (floatingWin && !floatingWin.isDestroyed()) {
     floatingWin.setSize(320, 56);
     floatingWin.setFocusable(false); // 收起后不可聚焦，避免抢焦点
@@ -347,23 +269,10 @@ function getWindowHandle() {
 function destroy() {
   isPinned = false;
   isExpanded = false;
-  isPendingToolbarVisible = false;
-  lastPendingInteractionTime = 0;
-  pendingRestoreFocusHandle = null;
   if (floatingWin && !floatingWin.isDestroyed()) {
     floatingWin.destroy();
     floatingWin = null;
   }
 }
 
-function markPendingInteraction() {
-  lastPendingInteractionTime = Date.now();
-}
-
-function restorePendingForegroundWindow() {
-  if (pendingRestoreFocusHandle) {
-    windowFocus.restoreForegroundWindow(pendingRestoreFocusHandle);
-  }
-}
-
-module.exports = { showWindow, showPendingWindow, hideWindow, hidePendingWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, getWindowHandle, destroy, getOrCreateWindow };
+module.exports = { showWindow, hideWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, getWindowHandle, destroy, getOrCreateWindow };
