@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const { renderMarkdownToHtml } = require('../src/main/markdown-renderer');
+
 function createClassList(initial = '') {
   const classes = new Set(initial.split(/\s+/).filter(Boolean));
   return {
@@ -94,7 +96,10 @@ test('standalone chat parses stored and final streamed markdown through shared p
         title: 'Markdown',
         createdAt: '2026-06-14T00:00:00.000Z',
         updatedAt: '2026-06-14T00:00:00.000Z',
-        messages: [{ role: 'assistant', content: '## Stored\n\n| A | B |\n| - | - |\n| 1 | 2 |' }]
+        messages: [{
+          role: 'assistant',
+          content: '## Stored\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n[unsafe](javascript:alert(1))'
+        }]
       }]
     }),
     saveConversation: async (conversation) => ({
@@ -114,7 +119,7 @@ test('standalone chat parses stored and final streamed markdown through shared p
     openSettings() {},
     parseMarkdown(text) {
       calls.push({ type: 'parseMarkdown', text });
-      return `<parsed>${text}</parsed>`;
+      return renderMarkdownToHtml(text);
     }
   };
   const document = {
@@ -135,17 +140,23 @@ test('standalone chat parses stored and final streamed markdown through shared p
   await new Promise(resolve => setImmediate(resolve));
 
   assert.equal(calls.some(call => call.type === 'parseMarkdown' && call.text.startsWith('## Stored')), true);
+  const storedMessage = elements.messages.children[0];
+  assert.match(storedMessage.innerHTML, />unsafe</);
+  assert.doesNotMatch(storedMessage.innerHTML, /href="javascript:/i);
 
   elements['chat-input'].value = 'Stream markdown';
   elements.composer.dispatchEvent('submit');
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
   callbacks.chatChunk({ conversationId: 'conv-1', chunk: '```js\ncon' });
-  callbacks.chatChunk({ conversationId: 'conv-1', chunk: 'sole.log(1)\n```' });
+  callbacks.chatChunk({ conversationId: 'conv-1', chunk: 'sole.log(1)\n```\n\n[unsafe](javascript:alert(1))' });
+  const streamingMessage = elements.messages.querySelector('.message.streaming');
+  assert.match(streamingMessage.innerHTML, />unsafe</);
+  assert.doesNotMatch(streamingMessage.innerHTML, /href="javascript:/i);
   callbacks.chatDone({ conversationId: 'conv-1' });
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
 
   assert.equal(calls.at(-1).type, 'parseMarkdown');
-  assert.equal(calls.at(-1).text, '```js\nconsole.log(1)\n```');
+  assert.equal(calls.at(-1).text, '```js\nconsole.log(1)\n```\n\n[unsafe](javascript:alert(1))');
 });

@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const { renderMarkdownToHtml } = require('../src/main/markdown-renderer');
+
 function createClassList(initial = '') {
   const classes = new Set(initial.split(/\s+/).filter(Boolean));
 
@@ -154,7 +156,7 @@ function createRendererHarness() {
     translateWord: async () => null,
     translateSentence() {},
     aiChatSend() {},
-    parseMarkdown(text) { return text; }
+    parseMarkdown(text) { return renderMarkdownToHtml(text); }
   };
 
   const context = vm.createContext({
@@ -225,12 +227,14 @@ test('floating translation re-renders final streamed markdown through shared par
 
   elements['btn-translate'].dispatchEvent('click', { stopPropagation() {} });
   callbacks.translateChunk('## Title\n');
-  callbacks.translateChunk('\n| A | B |\n| - | - |\n| 1 | 2 |');
+  callbacks.translateChunk('\n| A | B |\n| - | - |\n| 1 | 2 |\n\n[unsafe](javascript:alert(1))');
   callbacks.translateDone();
 
   // Check that data-raw was stored
   const rawText = elements['sentence-output'].getAttribute('data-raw');
-  assert.equal(rawText, '## Title\n\n| A | B |\n| - | - |\n| 1 | 2 |');
+  assert.equal(rawText, '## Title\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n[unsafe](javascript:alert(1))');
+  assert.match(elements['sentence-output'].innerHTML, />unsafe</);
+  assert.doesNotMatch(elements['sentence-output'].innerHTML, /href="javascript:/i);
 });
 
 test('floating chat re-renders final streamed markdown through shared parser', () => {
@@ -251,11 +255,13 @@ test('floating chat re-renders final streamed markdown through shared parser', (
   elements['chat-input'].value = 'Answer in markdown';
   elements['chat-send-btn'].dispatchEvent('click', { stopPropagation() {} });
   callbacks.aiChatChunk('```js\ncon');
-  callbacks.aiChatChunk('sole.log(1)\n```');
+  callbacks.aiChatChunk('sole.log(1)\n```\n\n[unsafe](javascript:alert(1))');
   callbacks.aiChatDone();
 
   // Check that data-raw was stored
   const lastMsg = elements['chat-messages'].lastElementChild;
   const rawText = lastMsg.getAttribute('data-raw');
-  assert.equal(rawText, '```js\nconsole.log(1)\n```');
+  assert.equal(rawText, '```js\nconsole.log(1)\n```\n\n[unsafe](javascript:alert(1))');
+  assert.match(lastMsg.innerHTML, />unsafe</);
+  assert.doesNotMatch(lastMsg.innerHTML, /href="javascript:/i);
 });

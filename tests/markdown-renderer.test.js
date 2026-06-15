@@ -83,6 +83,40 @@ test('escapes raw HTML so script tags and event handlers are not executable', ()
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });
 
+test('allows safe markdown link protocols and relative links', () => {
+  const html = renderMarkdownToHtml([
+    '[https](https://example.com)',
+    '[http](http://example.com)',
+    '[mail](mailto:user@example.com)',
+    '[relative](/docs/page)',
+    '[fragment](#section)',
+    '[protocol-relative](//example.com/path)'
+  ].join('\n'));
+
+  assert.match(html, /href="https:\/\/example\.com"/);
+  assert.match(html, /href="http:\/\/example\.com"/);
+  assert.match(html, /href="mailto:user@example\.com"/);
+  assert.match(html, /href="\/docs\/page"/);
+  assert.match(html, /href="#section"/);
+  assert.match(html, /href="\/\/example\.com\/path"/);
+});
+
+test('renders unsafe markdown links without clickable hrefs', () => {
+  const html = renderMarkdownToHtml([
+    '[js](javascript:alert(1))',
+    '[mixed](JaVaScRiPt:alert(1))',
+    '[data](data:text/html,<script>alert(1)</script>)',
+    '[vb](vbscript:msgbox(1))',
+    '[file](file:///C:/Windows/System32/calc.exe)'
+  ].join('\n'));
+
+  assert.doesNotMatch(html, /href=/i);
+  assert.doesNotMatch(html, /javascript:|data:|vbscript:|file:/i);
+  assert.match(html, />js</);
+  assert.match(html, />mixed</);
+  assert.match(html, />data</);
+});
+
 test('renders final accumulated streamed Markdown split across chunks', () => {
   const chunks = [
     '## Streamed',

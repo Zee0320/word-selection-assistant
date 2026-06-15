@@ -1,9 +1,42 @@
 const { Marked } = require('marked');
 
+const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+function isSafeLinkHref(href) {
+  const value = String(href || '').trim();
+  if (!value) return false;
+  if (value.startsWith('#') || value.startsWith('/') || value.startsWith('./') || value.startsWith('../')) {
+    return true;
+  }
+
+  const scheme = value.match(/^([a-z][a-z0-9+.-]*):/i);
+  return !scheme || SAFE_PROTOCOLS.has(`${scheme[1].toLowerCase()}:`);
+}
+
+function escapeAttribute(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 const markdown = new Marked({
   async: false,
   breaks: false,
   gfm: true
+});
+
+markdown.use({
+  renderer: {
+    link({ href, title, tokens }) {
+      const label = this.parser.parseInline(tokens);
+      if (!isSafeLinkHref(href)) return `<span>${label}</span>`;
+
+      const titleAttribute = title ? ` title="${escapeAttribute(title)}"` : '';
+      return `<a href="${escapeAttribute(href)}"${titleAttribute}>${label}</a>`;
+    }
+  }
 });
 
 function escapeRawHtml(text) {

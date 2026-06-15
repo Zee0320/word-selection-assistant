@@ -9,10 +9,12 @@ import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { Marked } from 'marked';
+import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
+const { renderMarkdownToHtml } = require('../src/main/markdown-renderer');
 
 // CSS styles from floating/style.css for markdown-body
 const markdownStyles = `
@@ -43,38 +45,6 @@ const panelStyles = `
   .panel-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #6c63ff; font-family: 'Inter', sans-serif; }
 `;
 
-// Initialize marked with same config as markdown-renderer.js
-const markdown = new Marked({
-  async: false,
-  breaks: false,
-  gfm: true
-});
-
-/**
- * Escape raw HTML to prevent XSS (from markdown-renderer.js)
- */
-function escapeRawHtml(text) {
-  return String(text || '')
-    .replace(/&(?!#?\w+;)/g, '&amp;')
-    .replace(/<(?=[a-zA-Z/!])/g, '&lt;')
-    .split('\n')
-    .map(line => {
-      if (line.startsWith('>')) {
-        return line;
-      }
-      return line.replace(/(?<=[a-zA-Z"'0-9\s])>/g, '&gt;');
-    })
-    .join('\n');
-}
-
-/**
- * Render markdown to HTML
- */
-function renderMarkdownToHtml(text) {
-  if (!text) return '';
-  return markdown.parse(escapeRawHtml(text));
-}
-
 // Markdown content for normal rendering - demonstrates various markdown features
 const normalMarkdown = [
   '# Heading',
@@ -99,8 +69,17 @@ const normalMarkdown = [
   '---'
 ].join('\n');
 
-// Malicious HTML content that should be escaped
-const maliciousHtml = '<script>alert("xss")</script>\n<img src=x onerror=alert("xss")>';
+// Malicious content that should be visible but inert
+const maliciousHtml = [
+  'Raw script:',
+  '<script>alert("xss")</script>',
+  '',
+  'Image event handler:',
+  '<img src=x onerror=alert("xss")>',
+  '',
+  'Unsafe link protocol:',
+  '[unsafe link](javascript:alert(1))'
+].join('\n');
 
 /**
  * Creates a complete HTML document for rendering
