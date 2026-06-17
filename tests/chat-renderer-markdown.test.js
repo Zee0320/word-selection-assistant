@@ -116,6 +116,7 @@ test('standalone chat parses stored and final streamed markdown through shared p
     onChatChunk(cb) { callbacks.chatChunk = cb; },
     onChatDone(cb) { callbacks.chatDone = cb; },
     onChatError() {},
+    onChatStateUpdated() {},
     onPrefillChatInput() {},
     onSettingsUpdated() {},
     openSettings() {},

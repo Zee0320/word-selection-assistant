@@ -179,11 +179,15 @@ ipcMain.handle('standalone-chat-delete-conversation', (event, conversationId) =>
 });
 
 ipcMain.handle('floating-chat-create-conversation', (event, payload) => {
-  return createFloatingChatConversation(payload);
+  const state = createFloatingChatConversation(payload);
+  standaloneChatWindow.sendChatState(state);
+  return state;
 });
 
 ipcMain.handle('floating-chat-save-conversation', (event, conversation) => {
-  return saveFloatingChatConversation(conversation);
+  const state = saveFloatingChatConversation(conversation);
+  standaloneChatWindow.sendChatState(state);
+  return state;
 });
 
 ipcMain.on('standalone-chat-send', (event, { conversationId, messages, selectedText = '' }) => {

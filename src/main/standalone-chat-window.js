@@ -70,6 +70,22 @@ function getWebContents() {
   return null;
 }
 
+function sendChatState(state) {
+  if (!chatWin || chatWin.isDestroyed()) return false;
+
+  const sendState = () => {
+    if (!chatWin || chatWin.isDestroyed()) return;
+    chatWin.webContents.send('standalone-chat-state-updated', state);
+  };
+
+  if (chatWin.webContents.isLoading()) {
+    chatWin.webContents.once('did-finish-load', sendState);
+  } else {
+    sendState();
+  }
+  return true;
+}
+
 function getWindowHandle() {
   if (chatWin && !chatWin.isDestroyed()) {
     return nativeWindowHandleToNumber(chatWin.getNativeWindowHandle());
@@ -84,4 +100,4 @@ function destroy() {
   }
 }
 
-module.exports = { openChatWindow, getWebContents, getWindowHandle, destroy };
+module.exports = { openChatWindow, getWebContents, sendChatState, getWindowHandle, destroy };

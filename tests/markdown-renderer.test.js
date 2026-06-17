@@ -122,6 +122,21 @@ test('renders unsafe markdown links without clickable hrefs', () => {
   assert.match(html, />data</);
 });
 
+test('renders unsafe markdown images without image src attributes', () => {
+  const html = renderMarkdownToHtml([
+    '![js](javascript:alert(1))',
+    '![file](file:///C:/Windows/System32/calc.exe)',
+    '![relative](/local/path.png)'
+  ].join('\n'));
+
+  assert.doesNotMatch(html, /<img/i);
+  assert.doesNotMatch(html, /src=/i);
+  assert.doesNotMatch(html, /javascript:|file:|\/local\/path/i);
+  assert.match(html, />js</);
+  assert.match(html, />file</);
+  assert.match(html, />relative</);
+});
+
 test('renders final accumulated streamed Markdown split across chunks', () => {
   const chunks = [
     '## Streamed',

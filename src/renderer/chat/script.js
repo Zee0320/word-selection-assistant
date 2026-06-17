@@ -431,6 +431,11 @@ window.api.onSettingsUpdated((updated) => {
   settings = updated;
 });
 
+window.api.onChatStateUpdated((state) => {
+  applyState(state);
+  render();
+});
+
 window.api.onPrefillChatInput((text) => {
   const draft = String(text || '').trim();
   if (!draft || isStreaming) return;

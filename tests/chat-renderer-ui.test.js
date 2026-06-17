@@ -151,6 +151,7 @@ async function createChatRendererHarness({
     onChatChunk(cb) { callbacks.chatChunk = cb; },
     onChatDone(cb) { callbacks.chatDone = cb; },
     onChatError(cb) { callbacks.chatError = cb; },
+    onChatStateUpdated(cb) { callbacks.chatStateUpdated = cb; },
     onPrefillChatInput() {},
     onSettingsUpdated() {},
     openSettings() {},
@@ -189,6 +190,31 @@ test('standalone chat renders selected context metadata and sends it with contin
   const sendCall = calls.find(call => call.type === 'sendChat');
   assert.equal(sendCall.selectedText, 'Selected paragraph');
   assert.equal(sendCall.messages.at(-1).content, 'Continue');
+});
+
+test('standalone chat live-updates when a floating conversation is created while open', async () => {
+  const nextConversation = {
+    id: 'conv-live-floating',
+    title: 'Explain live context',
+    createdAt: '2026-06-17T00:00:00.000Z',
+    updatedAt: '2026-06-17T00:00:00.000Z',
+    metadata: { selectedContext: 'Live selected context', source: 'floating' },
+    messages: [{ role: 'user', content: 'Explain live context' }]
+  };
+  const { callbacks, elements } = await createChatRendererHarness({
+    conversations: [],
+    activeConversationId: ''
+  });
+
+  callbacks.chatStateUpdated({
+    saveHistory: true,
+    activeConversationId: nextConversation.id,
+    conversations: [nextConversation]
+  });
+
+  assert.equal(elements['conversation-context'].classList.contains('hidden'), false);
+  assert.equal(elements['conversation-context-text'].textContent, 'Live selected context');
+  assert.equal(elements.messages.children[0].innerHTML, 'Explain live context');
 });
 
 test('history disabled still saves continued floating conversation to transient store before sending', async () => {

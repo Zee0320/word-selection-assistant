@@ -15,9 +15,12 @@ function loadStandaloneChatWindowWithFakes() {
       this.destroyed = false;
       this.minimized = false;
       this.focused = false;
+      this.sentMessages = [];
       this.webContents = {
         isLoading: () => false,
-        send: () => {},
+        send: (channel, payload) => {
+          this.sentMessages.push({ channel, payload });
+        },
         once: () => {}
       };
       createdWindows.push(this);
@@ -70,6 +73,28 @@ test('standalone chat window installs navigation guard before loading renderer',
     assert.equal(createdWindows.length, 1);
     assert.deepEqual(guardedWebContents, [createdWindows[0].webContents]);
     assert.match(createdWindows[0].loadedFile, /renderer[\\/]chat[\\/]index\.html$/);
+  } finally {
+    standaloneChatWindow.destroy();
+  }
+});
+
+test('sendChatState pushes updates to an already-open chat window', () => {
+  const { standaloneChatWindow, createdWindows } = loadStandaloneChatWindowWithFakes();
+
+  try {
+    standaloneChatWindow.openChatWindow();
+    standaloneChatWindow.sendChatState({
+      activeConversationId: 'conv-floating',
+      conversations: [{ id: 'conv-floating', messages: [] }]
+    });
+
+    assert.deepEqual(createdWindows[0].sentMessages, [{
+      channel: 'standalone-chat-state-updated',
+      payload: {
+        activeConversationId: 'conv-floating',
+        conversations: [{ id: 'conv-floating', messages: [] }]
+      }
+    }]);
   } finally {
     standaloneChatWindow.destroy();
   }
