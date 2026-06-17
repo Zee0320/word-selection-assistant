@@ -10,6 +10,8 @@ let isChatContextExpanded = false;
 let isStreaming = false;
 let isPinned = false;
 let isTextPending = false;
+let floatingConversationId = '';
+let floatingConversationMetadata = {};
 
 /**
  * Check if API is properly configured for the given purpose
@@ -349,7 +351,18 @@ chatContextToggle.addEventListener('click', (e) => {
   setChatContextExpanded(!isChatContextExpanded);
 });
 
-function sendChatMessage() {
+function buildFloatingConversationPayload() {
+  return {
+    id: floatingConversationId,
+    metadata: floatingConversationMetadata,
+    messages: chatMessages.map(message => ({
+      role: message.role,
+      content: message.content
+    }))
+  };
+}
+
+async function sendChatMessage() {
   const content = chatInput.value.trim();
   if (!content || isStreaming || isTextPending) return;
 
@@ -368,7 +381,28 @@ function sendChatMessage() {
   }
 
   chatMessages.push({ role: 'user', content });
-  appendChatMessage('user', content);
+  const userMessageEl = appendChatMessage('user', content);
+
+  try {
+    if (!floatingConversationId) {
+      const result = await window.api.createFloatingConversation({
+        selectedText: activeChatContext,
+        userMessage: content
+      });
+      floatingConversationId = result.conversation.id;
+      floatingConversationMetadata = result.conversation.metadata || {
+        selectedContext: activeChatContext,
+        source: 'floating'
+      };
+    } else {
+      await window.api.saveFloatingConversation(buildFloatingConversationPayload());
+    }
+  } catch (err) {
+    chatMessages.pop();
+    userMessageEl.remove();
+    appendChatError(err.message || '保存浮窗会话失败，请重试。');
+    return;
+  }
 
   const assistantEl = appendChatMessage('assistant', '');
   assistantEl.classList.add('streaming');
@@ -400,6 +434,10 @@ window.api.onAiChatDone(() => {
     const rawText = lastMsg.getAttribute('data-raw') || lastMsg.textContent;
     chatMessages.push({ role: 'assistant', content: rawText });
   }
+  if (floatingConversationId) {
+    window.api.saveFloatingConversation(buildFloatingConversationPayload())
+      .catch(err => appendChatError(err.message || '保存浮窗回复失败，请重试。'));
+  }
   chatInput.focus();
 });
 
@@ -410,7 +448,6 @@ window.api.onAiChatError((err) => {
   const lastMsg = chatMessages$?.lastElementChild;
   if (lastMsg?.classList.contains('streaming')) {
     lastMsg.remove();
-    chatMessages.pop();
   }
 
   // err is now { message, action } or a legacy string
@@ -510,6 +547,8 @@ function resetChatState() {
   activeChatContext = '';
   isChatContextFrozen = false;
   isChatContextExpanded = false;
+  floatingConversationId = '';
+  floatingConversationMetadata = {};
   updateChatContextUI();
   chatInput.value = '';
   isStreaming = false;
