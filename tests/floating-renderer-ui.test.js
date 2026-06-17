@@ -63,8 +63,13 @@ function createElement(id, initialClass = '') {
       listeners.get(type).push(listener);
     },
     dispatchEvent(type, event = {}) {
+      const nextEvent = {
+        stopPropagation() {},
+        preventDefault() {},
+        ...event
+      };
       for (const listener of listeners.get(type) || []) {
-        listener(event);
+        listener(nextEvent);
       }
     },
     appendChild(child) {
@@ -100,6 +105,10 @@ function createRendererHarness() {
     'sentence-loading',
     'translation-error',
     'chat-context',
+    'chat-context-header',
+    'chat-context-label',
+    'chat-context-toggle',
+    'chat-context-status',
     'chat-context-text',
     'chat-context-clear',
     'chat-context-lock',
@@ -155,8 +164,12 @@ function createRendererHarness() {
     classifyText: async () => ({ type: 'word', isChinese: false }),
     translateWord: async () => null,
     translateSentence() {},
-    aiChatSend() {},
-    parseMarkdown(text) { return renderMarkdownToHtml(text); }
+    aiChatSend(selectedText, messages) {
+      calls.push({ type: 'aiChatSend', selectedText, messages });
+    },
+    parseMarkdown(text) {
+      return renderMarkdownToHtml(text);
+    }
   };
 
   const context = vm.createContext({
@@ -230,7 +243,6 @@ test('floating translation re-renders final streamed markdown through shared par
   callbacks.translateChunk('\n| A | B |\n| - | - |\n| 1 | 2 |\n\n[unsafe](javascript:alert(1))');
   callbacks.translateDone();
 
-  // Check that data-raw was stored
   const rawText = elements['sentence-output'].getAttribute('data-raw');
   assert.equal(rawText, '## Title\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n[unsafe](javascript:alert(1))');
   assert.match(elements['sentence-output'].innerHTML, />unsafe</);
@@ -258,10 +270,134 @@ test('floating chat re-renders final streamed markdown through shared parser', (
   callbacks.aiChatChunk('sole.log(1)\n```\n\n[unsafe](javascript:alert(1))');
   callbacks.aiChatDone();
 
-  // Check that data-raw was stored
   const lastMsg = elements['chat-messages'].lastElementChild;
   const rawText = lastMsg.getAttribute('data-raw');
   assert.equal(rawText, '```js\nconsole.log(1)\n```\n\n[unsafe](javascript:alert(1))');
   assert.match(lastMsg.innerHTML, />unsafe</);
   assert.doesNotMatch(lastMsg.innerHTML, /href="javascript:/i);
+});
+
+test('chat context card starts collapsed with selected text', () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'First line\nSecond line\nThird line',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+
+  assert.equal(elements['chat-context-text'].value, 'First line\nSecond line\nThird line');
+  assert.equal(elements['chat-context'].classList.contains('context-collapsed'), true);
+  assert.equal(elements['chat-context'].classList.contains('context-expanded'), false);
+  assert.equal(elements['chat-context-text'].readOnly, false);
+  assert.equal(elements['chat-context-clear'].classList.contains('hidden'), false);
+  assert.equal(elements['chat-context-lock'].classList.contains('hidden'), true);
+});
+
+test('chat context card toggles expanded state before first send', () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected paragraph',
+    settings: { translationEnabled: true, aiChatEnabled: true },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+
+  elements['chat-context-toggle'].dispatchEvent('click');
+  assert.equal(elements['chat-context'].classList.contains('context-expanded'), true);
+  assert.equal(elements['chat-context-toggle'].getAttribute('aria-expanded'), 'true');
+
+  elements['chat-context-toggle'].dispatchEvent('click');
+  assert.equal(elements['chat-context'].classList.contains('context-collapsed'), true);
+  assert.equal(elements['chat-context-toggle'].getAttribute('aria-expanded'), 'false');
+});
+
+test('chat context can be cleared before first send', () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected paragraph',
+    settings: { translationEnabled: true, aiChatEnabled: true },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-context-clear'].dispatchEvent('click');
+
+  assert.equal(elements['chat-context-text'].value, '');
+  assert.equal(elements['chat-context'].classList.contains('context-empty'), true);
+  assert.equal(elements['chat-context-text'].placeholder, 'Normal chat - no selected text context');
+});
+
+test('first chat send freezes selected context and sends that context to main process', () => {
+  const { callbacks, calls, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Original selected text',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-context-text'].value = 'Edited selected text';
+  elements['chat-context-text'].dispatchEvent('input');
+  elements['chat-input'].value = 'Explain this';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  const sendCall = calls.find(call => call.type === 'aiChatSend');
+  assert.equal(sendCall.selectedText, 'Edited selected text');
+  assert.equal(sendCall.messages.at(-1).content, 'Explain this');
+  assert.equal(elements['chat-context-text'].readOnly, true);
+  assert.equal(elements['chat-context-clear'].classList.contains('hidden'), true);
+  assert.equal(elements['chat-context-lock'].classList.contains('hidden'), false);
+});
+
+test('new selected text resets context card after a frozen chat', () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'First selection',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+  elements['chat-input'].value = 'Question';
+  elements['chat-send-btn'].dispatchEvent('click');
+
+  callbacks.showToolbar({
+    text: 'Second selection',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'key',
+      chatModel: 'model'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+
+  assert.equal(elements['chat-context-text'].value, 'Second selection');
+  assert.equal(elements['chat-context-text'].readOnly, false);
+  assert.equal(elements['chat-context-clear'].classList.contains('hidden'), false);
+  assert.equal(elements['chat-context-lock'].classList.contains('hidden'), true);
+  assert.equal(elements['chat-context'].classList.contains('context-collapsed'), true);
 });

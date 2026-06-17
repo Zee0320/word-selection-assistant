@@ -65,15 +65,17 @@
 
   <!-- AI 对话面板 -->
   <div id="panel-chat" class="panel hidden">
-    <div id="chat-context">
-      <span id="chat-context-icon">📎</span>
+    <div id="chat-context" class="context-collapsed">
+      <span id="chat-context-icon" aria-hidden="true">📎</span>
       <div id="chat-context-body">
-        <div id="chat-context-toolbar">
-          <span id="chat-context-label">Context</span>
-          <button id="chat-context-clear" type="button" title="Clear context" aria-label="Clear context">×</button>
+        <div id="chat-context-header">
+          <span id="chat-context-label">Selected text</span>
+          <span id="chat-context-status" class="hidden">No selected text context</span>
+          <button id="chat-context-toggle" type="button" title="Expand selected text" aria-label="Expand selected text" aria-expanded="false">⌄</button>
+          <button id="chat-context-clear" type="button" title="Clear selected text context" aria-label="Clear selected text context">×</button>
           <span id="chat-context-lock" class="hidden">Locked</span>
         </div>
-        <textarea id="chat-context-text" rows="2" spellcheck="false"></textarea>
+        <textarea id="chat-context-text" rows="2" spellcheck="false" aria-label="Selected text context"></textarea>
       </div>
     </div>
     <div id="chat-messages"></div>
