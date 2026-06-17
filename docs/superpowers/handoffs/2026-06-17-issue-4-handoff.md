@@ -28,7 +28,7 @@
 node --test tests/chat-history.test.js tests/store-chat-sync.test.js tests/floating-renderer-ui.test.js tests/chat-renderer-ui.test.js
 ```
 
-Result: PASS, 28 tests, 0 failures.
+Result after review remediation: PASS, 29 tests, 0 failures.
 
 ## Contract Verified
 
@@ -47,6 +47,7 @@ The tests intentionally stub `createFloatingConversation` as `{ conversation: { 
 ## PASS Summary
 
 - First floating chat send creates a synced conversation before sending the AI request.
+- If standalone AI Chat is already open, the created or saved floating conversation is pushed through `standalone-chat-state-updated` and rendered immediately.
 - The synced conversation stores selected text in `metadata.selectedContext`.
 - Standalone AI Chat can continue the conversation with the same selected context.
 - Assistant streaming completion is saved back to the synced conversation.
@@ -55,4 +56,4 @@ The tests intentionally stub `createFloatingConversation` as `{ conversation: { 
 
 ## Remaining Risk
 
-- Manual issue #4 UX verification should be repeated in the final integration app before marking the PR ready.
+- No known blocking risk remains after the live standalone AI Chat state update regression test.

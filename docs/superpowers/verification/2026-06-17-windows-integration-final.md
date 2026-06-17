@@ -2,9 +2,9 @@
 
 ## Status
 
-**AUTOMATED PASS / DRAFT PR READY** - Windows integration branch contains issue #2, #4, #5, and #6. Issue #3 remains separate on the UOS ARM64 branch and is still blocked on real UOS ARM64 X11 manual verification.
+**AUTOMATED PASS / DRAFT PR READY** - Windows integration branch contains issue #2, #4, #5, and #6. Post-review remediation fixed unsafe markdown image rendering and live standalone AI Chat state updates. Issue #3 remains separate on the UOS ARM64 branch and is still blocked on real UOS ARM64 X11 manual verification.
 
-Source HEAD verified before documentation-only handoff files: `e1816886e6fe8faa1d838abd83bdb9b64d566168`.
+Source HEAD verified before documentation-only handoff files: `df40fc0a09493d82c29f326d805db3f5b4bf70ee`.
 
 ## Branch Scope
 
@@ -21,6 +21,7 @@ Source HEAD verified before documentation-only handoff files: `e1816886e6fe8faa1
 | #4 | `020b866 merge: integrate floating chat conversation sync` | `origin/worktree-issue-4` |
 | #6 | `8443e56 merge: integrate empty selection toolbar gate` | `origin/worktree-issue-6-empty-selection` |
 | Audit | `e181688 test: add completed issue audit` | local final integration work |
+| Review remediation | `df40fc0 fix: address integration review gaps` | local final integration work |
 
 ## Final Verification Commands
 
@@ -28,13 +29,13 @@ Source HEAD verified before documentation-only handoff files: `e1816886e6fe8faa1
 node --test tests/markdown-renderer.test.js tests/chat-renderer-markdown.test.js tests/window-navigation-guard.test.js tests/standalone-chat-window.test.js
 ```
 
-Result: PASS, 12 tests, 0 failures.
+Result: PASS, 14 tests, 0 failures.
 
 ```powershell
 node --test tests/floating-renderer-ui.test.js tests/chat-renderer-ui.test.js tests/store-chat-sync.test.js tests/chat-history.test.js
 ```
 
-Result: PASS, 28 tests, 0 failures.
+Result: PASS, 29 tests, 0 failures.
 
 ```powershell
 node --test tests/text-capture.test.js tests/text-capture-ignored-gesture.test.js tests/floating-window.test.js tests/floating-window-hit-test.test.js
@@ -52,7 +53,7 @@ Result: PASS, 7 tests, 0 failures.
 npm test
 ```
 
-Result: PASS, 171 tests, 0 failures.
+Result: PASS, 174 tests, 0 failures.
 
 ```powershell
 rg -n -F -e "showPendingWindow" -e "onCapturePending" -e "onCaptureMissed" -e "pending: true" src/main
@@ -85,6 +86,7 @@ Issue #6: PASS (windows-gate)
   - `docs/superpowers/verification/issue-2/malicious-html-escaped.png` (13,834 bytes)
   - `docs/superpowers/verification/issue-2/full-screen.png` (2,024,559 bytes)
 - Automated coverage confirms shared Markdown parser and navigation guard behavior.
+- Review remediation confirms unsafe markdown image sources do not produce `<img src>` output.
 
 ### Issue #4
 
@@ -93,6 +95,7 @@ Issue #6: PASS (windows-gate)
   - `createFloatingConversation({ selectedText, userMessage })`
   - result shape `{ conversation: { id, metadata, messages } }`
   - `saveFloatingConversation({ id, metadata, messages })`
+- Review remediation confirms already-open standalone AI Chat windows receive `standalone-chat-state-updated` and render the floating conversation immediately.
 - Failure coverage confirms create failure removes the user bubble and does not send an AI request.
 
 ### Issue #5
@@ -121,7 +124,6 @@ Issue #6: PASS (windows-gate)
 
 ## Remaining Manual Review Before Ready PR
 
-- Re-run issue #4 manually from this integration branch: floating AI chat first send should create the same conversation in the standalone AI Chat window and continue with `selectedContext`.
 - Re-run issue #5 manually from this integration branch: collapsed, expanded, cleared, locked, and reset context card states should match screenshot evidence.
 - Re-run issue #2 manually from this integration branch if visual Markdown rendering needs a human sign-off beyond the checked-in screenshots.
 

@@ -29,7 +29,7 @@
 node --test tests/markdown-renderer.test.js tests/chat-renderer-markdown.test.js tests/window-navigation-guard.test.js tests/standalone-chat-window.test.js
 ```
 
-Result: PASS, 12 tests, 0 failures.
+Result after review remediation: PASS, 14 tests, 0 failures.
 
 Previous focused merge verification also passed:
 
@@ -50,6 +50,7 @@ Result: PASS, 22 tests, 0 failures.
 
 - Markdown headings, lists, tables, code blocks, emphasis, and blockquotes render through the shared parser.
 - Unsafe protocols such as `javascript:` render without clickable `href`.
+- Unsafe markdown image sources such as `javascript:`, `file:`, and local paths render without `<img src>`.
 - Raw HTML is escaped before rendering.
 - Floating and standalone windows install the navigation guard.
 - `http:`, `https:`, and `mailto:` are opened externally.
@@ -57,4 +58,4 @@ Result: PASS, 22 tests, 0 failures.
 
 ## Remaining Risk
 
-- Manual visual review depends on the checked-in PNG evidence; final integration still needs the full test suite before PR.
+- Manual visual review depends on the checked-in PNG evidence if human UX sign-off is required.
