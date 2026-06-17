@@ -10,6 +10,8 @@ const conversationList = document.getElementById('conversation-list');
 const historyState = document.getElementById('history-state');
 const conversationTitle = document.getElementById('conversation-title');
 const conversationMeta = document.getElementById('conversation-meta');
+const conversationContext = document.getElementById('conversation-context');
+const conversationContextText = document.getElementById('conversation-context-text');
 const messagesEl = document.getElementById('messages');
 const newChatBtn = document.getElementById('new-chat');
 const deleteChatBtn = document.getElementById('delete-chat');
@@ -97,8 +99,19 @@ function applyState(state) {
   activeConversationId = state.activeConversationId || conversations[0]?.id || '';
 }
 
+function getSelectedContext(conversation) {
+  return String(conversation?.metadata?.selectedContext || '').trim();
+}
+
+function renderConversationContext() {
+  const selectedContext = getSelectedContext(getActiveConversation());
+  conversationContext.classList.toggle('hidden', !selectedContext);
+  conversationContextText.textContent = selectedContext;
+}
+
 function render() {
   renderHistory();
+  renderConversationContext();
   renderMessages();
   updateControls();
 }
@@ -238,10 +251,8 @@ async function deleteConversation(conversationId) {
 async function persistConversation(conversation) {
   upsertLocalConversation(conversation);
   activeConversationId = conversation.id;
-  if (saveHistory) {
-    const state = await window.api.saveConversation(conversation);
-    applyState(state);
-  }
+  const state = await window.api.saveConversation(conversation);
+  applyState(state);
   render();
 }
 
@@ -281,8 +292,9 @@ async function sendMessage() {
   appendStreamingMessage();
   updateControls();
 
+  const selectedContext = getSelectedContext(conversation);
   const messages = conversation.messages.map(({ role, content }) => ({ role, content }));
-  window.api.sendChat(conversation.id, messages);
+  window.api.sendChat(conversation.id, messages, selectedContext);
 }
 
 function appendStreamingMessage() {
@@ -329,10 +341,8 @@ async function finishStreaming(conversationId) {
       await persistConversation(updatedConversation);
     } else {
       upsertLocalConversation(updatedConversation);
-      if (saveHistory) {
-        await window.api.saveConversation(updatedConversation);
-        await window.api.selectConversation(viewedConversationId);
-      }
+      await window.api.saveConversation(updatedConversation);
+      await window.api.selectConversation(viewedConversationId);
       activeConversationId = viewedConversationId;
     }
   }
@@ -419,6 +429,11 @@ window.api.onChatError(({ conversationId, error }) => {
 
 window.api.onSettingsUpdated((updated) => {
   settings = updated;
+});
+
+window.api.onChatStateUpdated((state) => {
+  applyState(state);
+  render();
 });
 
 window.api.onPrefillChatInput((text) => {

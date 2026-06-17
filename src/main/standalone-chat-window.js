@@ -1,6 +1,7 @@
 const { BrowserWindow } = require('electron');
 const path = require('path');
 const { nativeWindowHandleToNumber } = require('./window-focus');
+const { installNavigationGuard } = require('./window-navigation-guard');
 
 let chatWin = null;
 let pendingDraftText = '';
@@ -43,6 +44,7 @@ function openChatWindow(options = {}) {
     }
   });
 
+  installNavigationGuard(chatWin.webContents);
   chatWin.loadFile(path.join(__dirname, '../renderer/chat/index.html'));
   chatWin.setMenuBarVisibility(false);
   if (draftText) {
@@ -68,6 +70,22 @@ function getWebContents() {
   return null;
 }
 
+function sendChatState(state) {
+  if (!chatWin || chatWin.isDestroyed()) return false;
+
+  const sendState = () => {
+    if (!chatWin || chatWin.isDestroyed()) return;
+    chatWin.webContents.send('standalone-chat-state-updated', state);
+  };
+
+  if (chatWin.webContents.isLoading()) {
+    chatWin.webContents.once('did-finish-load', sendState);
+  } else {
+    sendState();
+  }
+  return true;
+}
+
 function getWindowHandle() {
   if (chatWin && !chatWin.isDestroyed()) {
     return nativeWindowHandleToNumber(chatWin.getNativeWindowHandle());
@@ -82,4 +100,4 @@ function destroy() {
   }
 }
 
-module.exports = { openChatWindow, getWebContents, getWindowHandle, destroy };
+module.exports = { openChatWindow, getWebContents, sendChatState, getWindowHandle, destroy };

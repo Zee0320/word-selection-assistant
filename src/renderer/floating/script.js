@@ -6,9 +6,12 @@ let chatMessages = [];
 let chatContext = '';
 let activeChatContext = '';
 let isChatContextFrozen = false;
+let isChatContextExpanded = false;
 let isStreaming = false;
 let isPinned = false;
 let isTextPending = false;
+let floatingConversationId = '';
+let floatingConversationMetadata = {};
 
 /**
  * Check if API is properly configured for the given purpose
@@ -71,6 +74,9 @@ const translationError = document.getElementById('translation-error');
 const chatContextText = document.getElementById('chat-context-text');
 const chatContextClear = document.getElementById('chat-context-clear');
 const chatContextLock = document.getElementById('chat-context-lock');
+const chatContextCard = document.getElementById('chat-context');
+const chatContextToggle = document.getElementById('chat-context-toggle');
+const chatContextStatus = document.getElementById('chat-context-status');
 const chatMessages$ = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const chatSendBtn = document.getElementById('chat-send-btn');
@@ -334,11 +340,29 @@ chatContextClear.addEventListener('click', (e) => {
   if (isChatContextFrozen) return;
   chatContext = '';
   chatContextText.value = '';
+  setChatContextExpanded(false);
   updateChatContextUI();
   chatContextText.focus();
 });
 
-function sendChatMessage() {
+chatContextToggle.addEventListener('click', (e) => {
+  window.api.notifyInteraction();
+  e.stopPropagation();
+  setChatContextExpanded(!isChatContextExpanded);
+});
+
+function buildFloatingConversationPayload() {
+  return {
+    id: floatingConversationId,
+    metadata: floatingConversationMetadata,
+    messages: chatMessages.map(message => ({
+      role: message.role,
+      content: message.content
+    }))
+  };
+}
+
+async function sendChatMessage() {
   const content = chatInput.value.trim();
   if (!content || isStreaming || isTextPending) return;
 
@@ -349,14 +373,36 @@ function sendChatMessage() {
 
   chatInput.value = '';
   if (!isChatContextFrozen) {
-    activeChatContext = chatContextText.value.trim();
+    activeChatContext = normalizeChatContext(chatContextText.value);
     chatContext = activeChatContext;
     isChatContextFrozen = true;
+    setChatContextExpanded(false);
     updateChatContextUI();
   }
 
   chatMessages.push({ role: 'user', content });
-  appendChatMessage('user', content);
+  const userMessageEl = appendChatMessage('user', content);
+
+  try {
+    if (!floatingConversationId) {
+      const result = await window.api.createFloatingConversation({
+        selectedText: activeChatContext,
+        userMessage: content
+      });
+      floatingConversationId = result.conversation.id;
+      floatingConversationMetadata = result.conversation.metadata || {
+        selectedContext: activeChatContext,
+        source: 'floating'
+      };
+    } else {
+      await window.api.saveFloatingConversation(buildFloatingConversationPayload());
+    }
+  } catch (err) {
+    chatMessages.pop();
+    userMessageEl.remove();
+    appendChatError(err.message || '保存浮窗会话失败，请重试。');
+    return;
+  }
 
   const assistantEl = appendChatMessage('assistant', '');
   assistantEl.classList.add('streaming');
@@ -388,6 +434,10 @@ window.api.onAiChatDone(() => {
     const rawText = lastMsg.getAttribute('data-raw') || lastMsg.textContent;
     chatMessages.push({ role: 'assistant', content: rawText });
   }
+  if (floatingConversationId) {
+    window.api.saveFloatingConversation(buildFloatingConversationPayload())
+      .catch(err => appendChatError(err.message || '保存浮窗回复失败，请重试。'));
+  }
   chatInput.focus();
 });
 
@@ -398,7 +448,6 @@ window.api.onAiChatError((err) => {
   const lastMsg = chatMessages$?.lastElementChild;
   if (lastMsg?.classList.contains('streaming')) {
     lastMsg.remove();
-    chatMessages.pop();
   }
 
   // err is now { message, action } or a legacy string
@@ -497,25 +546,53 @@ function resetChatState() {
   chatContext = currentText;
   activeChatContext = '';
   isChatContextFrozen = false;
+  isChatContextExpanded = false;
+  floatingConversationId = '';
+  floatingConversationMetadata = {};
   updateChatContextUI();
   chatInput.value = '';
   isStreaming = false;
   chatSendBtn.disabled = false;
 }
 
+function normalizeChatContext(text) {
+  return String(text || '').trim();
+}
+
+function setChatContextExpanded(expanded) {
+  isChatContextExpanded = Boolean(expanded);
+  updateChatContextUI();
+}
+
+function getDisplayedChatContext() {
+  return isChatContextFrozen ? activeChatContext : chatContext;
+}
+
 function updateChatContextUI() {
-  const displayContext = isChatContextFrozen ? activeChatContext : chatContext;
+  const displayContext = getDisplayedChatContext();
   if (chatContextText.value !== displayContext) {
     chatContextText.value = displayContext;
   }
 
-  const isEmpty = displayContext.trim() === '';
+  const isEmpty = normalizeChatContext(displayContext) === '';
   chatContextText.readOnly = isChatContextFrozen;
   chatContextText.placeholder = isEmpty ? 'Normal chat - no selected text context' : '';
-  chatContextClear.classList.toggle('hidden', isChatContextFrozen);
+
+  chatContextCard.classList.toggle('context-empty', isEmpty);
+  chatContextCard.classList.toggle('context-frozen', isChatContextFrozen);
+  chatContextCard.classList.toggle('context-expanded', isChatContextExpanded);
+  chatContextCard.classList.toggle('context-collapsed', !isChatContextExpanded);
+
+  chatContextClear.classList.toggle('hidden', isChatContextFrozen || isEmpty);
   chatContextLock.classList.toggle('hidden', !isChatContextFrozen);
-  document.getElementById('chat-context').classList.toggle('context-empty', isEmpty);
-  document.getElementById('chat-context').classList.toggle('context-frozen', isChatContextFrozen);
+  chatContextStatus.classList.toggle('hidden', !isEmpty);
+
+  chatContextToggle.disabled = isChatContextFrozen || isEmpty;
+  chatContextToggle.classList.toggle('hidden', isEmpty);
+  chatContextToggle.textContent = isChatContextExpanded ? '⌃' : '⌄';
+  chatContextToggle.title = isChatContextExpanded ? 'Collapse selected text' : 'Expand selected text';
+  chatContextToggle.setAttribute('aria-label', chatContextToggle.title);
+  chatContextToggle.setAttribute('aria-expanded', String(isChatContextExpanded));
 }
 
 function getActivePanel() {
