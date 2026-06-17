@@ -20,3 +20,6 @@ Result: PASS, 135 tests, 0 failures
 
 Manual application interaction:
 NOT RUN. Cross-application Notepad/browser mouse-selection evidence requires an interactive Windows verification pass. See manual-windows-results.md.
+
+2026-06-17 user manual verification:
+User reported all rows PASS after launching the app with npm run dev and manually checking issue 6 empty-selection behavior on Windows.
