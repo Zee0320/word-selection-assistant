@@ -423,3 +423,9 @@ h2 {
     padding: 16px;
   }
 }
+
+.message hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}

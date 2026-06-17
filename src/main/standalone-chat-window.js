@@ -1,6 +1,7 @@
 const { BrowserWindow } = require('electron');
 const path = require('path');
 const { nativeWindowHandleToNumber } = require('./window-focus');
+const { installNavigationGuard } = require('./window-navigation-guard');
 
 let chatWin = null;
 let pendingDraftText = '';
@@ -43,6 +44,7 @@ function openChatWindow(options = {}) {
     }
   });
 
+  installNavigationGuard(chatWin.webContents);
   chatWin.loadFile(path.join(__dirname, '../renderer/chat/index.html'));
   chatWin.setMenuBarVisibility(false);
   if (draftText) {

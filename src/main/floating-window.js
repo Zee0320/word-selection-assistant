@@ -4,6 +4,7 @@ const path = require('path');
 const { getSettings } = require('./store');
 const windowFocus = require('./window-focus');
 const { isPhysicalPointInsideWindow } = require('./floating-window-hit-test');
+const { installNavigationGuard } = require('./window-navigation-guard');
 
 let floatingWin = null;
 let isExpanded = false;
@@ -43,6 +44,7 @@ function getOrCreateWindow() {
       preload: path.join(__dirname, '../preload/floating-preload.js')
     }
   });
+  installNavigationGuard(floatingWin.webContents);
   floatingWin.loadFile(path.join(__dirname, '../renderer/floating/index.html'));
 
   // 失焦时请求隐藏（使用 requestHide 而不是直接 hideWindow，
