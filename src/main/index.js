@@ -21,7 +21,7 @@ const {
 } = require('./store');
 const { lookupWord } = require('./dictionary');
 const { classifyText, isChinese, translateSentence, aiChat } = require('./ai-client');
-const { renderMarkdownToHtml } = require('./markdown-renderer');
+const { renderMarkdownToHtml, initMarkedRenderer } = require('./markdown-renderer');
 
 // 单实例锁
 const gotLock = app.requestSingleInstanceLock();
@@ -36,21 +36,16 @@ app.on('second-instance', () => {
 // 阻止 Dock 出现（macOS），Windows 无效但无害
 app.dock?.hide();
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 初始化 Markdown 渲染器（marked v18+ 需要 async import）
+  await initMarkedRenderer();
+
   // 初始化托盘（必须在 ready 之后）
   tray.init();
 
   // 初始化文本捕获
-  textCapture.init({
-    onCapturePending: (x, y, activeWindowHandle, captureId) => {
-      floatingWindow.showPendingWindow(x, y, activeWindowHandle, captureId);
-    },
-    onTextCaptured: (text, x, y, activeWindowHandle, captureId) => {
-      floatingWindow.showWindow(text, x, y, activeWindowHandle, { captureId });
-    },
-    onCaptureMissed: (captureId) => {
-      floatingWindow.hidePendingWindow(captureId);
-    }
+  textCapture.init((text, x, y, activeWindowHandle, captureId) => {
+    floatingWindow.showWindow(text, x, y, activeWindowHandle, { captureId });
   });
   textCapture.setShouldIgnoreWindow((windowHandle) => {
     if (!windowHandle) return false;

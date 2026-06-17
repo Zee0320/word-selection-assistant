@@ -72,6 +72,11 @@ function renderMarkdownToHtml(text) {
   return markdown.parse(escapeRawHtml(text));
 }
 
+async function initMarkedRenderer() {
+  return markdown;
+}
+
 module.exports = {
-  renderMarkdownToHtml
+  renderMarkdownToHtml,
+  initMarkedRenderer
 };

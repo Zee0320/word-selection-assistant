@@ -7,8 +7,6 @@ const { readSelectedTextWithFallback } = require('./selected-text-capture-strate
 
 let isEnabled = true;
 let onTextCaptured = null;
-let onCapturePending = null;
-let onCaptureMissed = null;
 let onMouseDownCallback = null;
 let shouldIgnoreWindow = null;
 let activeCaptureId = 0;
@@ -53,14 +51,11 @@ function setShouldIgnoreWindow(cb) {
 }
 
 function init(callbackOrHandlers) {
+  // Support both callback function and object format for backward compatibility
   if (typeof callbackOrHandlers === 'function') {
     onTextCaptured = callbackOrHandlers;
-    onCapturePending = null;
-    onCaptureMissed = null;
   } else {
     onTextCaptured = callbackOrHandlers?.onTextCaptured || null;
-    onCapturePending = callbackOrHandlers?.onCapturePending || null;
-    onCaptureMissed = callbackOrHandlers?.onCaptureMissed || null;
   }
 
   const hook = getHookApi();
@@ -112,39 +107,16 @@ function init(callbackOrHandlers) {
       }
       return cachedActiveWindowInfo;
     };
-    // Only drags get a pending toolbar. Double-clicks often activate non-text UI
-    // such as Explorer folders, so wait until text is actually captured.
-    let pendingSession = {
-      markResolved() {},
-      hideIfPending() {}
-    };
-    if (isDrag) {
-      pendingSession = createPendingCaptureSession({
-        captureId,
-        mouseX: e.x,
-        mouseY: e.y,
-        getActiveWindowInfo,
-        shouldIgnoreWindow,
-        isCurrentCapture,
-        onPending: onCapturePending,
-        onMissed: onCaptureMissed
-      });
-    }
-
     // Let selection settle before reading, especially for double-click selection.
     await sleep(SELECTION_SETTLE_MS);
     const activeWindowInfo = await getActiveWindowInfo();
     if (!isCurrentCapture(captureId)) {
-      pendingSession.markResolved();
-      pendingSession.hideIfPending();
       return;
     }
 
     const activeWindowHandle = activeWindowInfo.hwnd;
 
     if (shouldIgnoreWindow && shouldIgnoreWindow(activeWindowHandle)) {
-      pendingSession.markResolved();
-      pendingSession.hideIfPending();
       console.log('[TextCapture] Ignored own application window');
       return;
     }
@@ -161,23 +133,21 @@ function init(callbackOrHandlers) {
       readViaClipboardFallback: captureSelectedTextFromClipboard,
       allowClipboardFallback
     });
-    pendingSession.markResolved();
 
     if (!isCurrentCapture(captureId)) {
-      pendingSession.hideIfPending();
       return;
     }
 
-    console.log('[TextCapture] Selected text:', selectedText ? `"${selectedText}"` : '(empty)');
+    const trimmedText = String(selectedText || '').trim();
+    console.log('[TextCapture] Selected text:', trimmedText ? `"${trimmedText}"` : '(empty)');
 
-    if (!selectedText) {
-      pendingSession.hideIfPending();
+    if (!shouldShowToolbarForCapturedText(trimmedText)) {
       return;
     }
 
     if (onTextCaptured) {
-      console.log(`[TextCapture] Captured text: "${selectedText}"`);
-      onTextCaptured(selectedText, e.x, e.y, activeWindowHandle, captureId);
+      console.log(`[TextCapture] Captured text: "${trimmedText}"`);
+      onTextCaptured(trimmedText, e.x, e.y, activeWindowHandle, captureId);
     }
   });
 
@@ -234,6 +204,10 @@ function withTimeout(promise, timeoutMs, fallback = null) {
 
 function isCurrentCapture(captureId) {
   return captureId === activeCaptureId;
+}
+
+function shouldShowToolbarForCapturedText(text) {
+  return String(text || '').trim().length > 0;
 }
 
 function createPendingCaptureSession({
@@ -379,25 +353,25 @@ async function captureSelectedTextFromClipboard({
   clipboardApi = clipboard,
   copySelection = copySelectionToClipboard,
   logger = console,
-  waitTimeout = CLIPBOARD_WAIT_MS
+  waitTimeout = CLIPBOARD_WAIT_MS,
+  sentinel = null
 } = {}) {
   const snapshot = createClipboardSnapshot(clipboardApi, logger);
   logger.log?.('[TextCapture] Backup clipboard:', snapshot.text ? `"${snapshot.text.substring(0, 50)}"` : '(empty)');
 
-  let selectedText = '';
+  const actualSentinel = sentinel || `__WSA_CAPTURE_${Date.now()}_${Math.random().toString(16).slice(2)}__`;
   try {
-    clipboardApi?.writeText?.('');
+    clipboardApi.writeText(actualSentinel);
     copySelection();
-    selectedText = (await waitForClipboardChange('', waitTimeout, clipboardApi)).trim();
+    const copied = await waitForClipboardChange(actualSentinel, waitTimeout, clipboardApi);
+    return copied === actualSentinel ? '' : String(copied || '').trim();
   } catch (err) {
     logger.warn?.('[TextCapture] Capture selected text failed:', err.message || err);
-    selectedText = '';
+    return '';
   } finally {
     const restored = restoreClipboardSnapshot(snapshot, clipboardApi, logger);
     logger.log?.('[TextCapture] Clipboard restore:', restored ? 'SUCCESS' : 'FAILED');
   }
-
-  return selectedText;
 }
 
 async function waitForClipboardChange(prevText, timeout, clipboardApi = clipboard) {
@@ -425,6 +399,7 @@ module.exports = {
   setShouldIgnoreWindow,
   _private: {
     createPendingCaptureSession,
-    isRepeatedMouseUp
+    isRepeatedMouseUp,
+    shouldShowToolbarForCapturedText
   }
 };

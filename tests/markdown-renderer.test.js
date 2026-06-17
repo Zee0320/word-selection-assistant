@@ -1,7 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { renderMarkdownToHtml } = require('../src/main/markdown-renderer');
+const { renderMarkdownToHtml, initMarkedRenderer } = require('../src/main/markdown-renderer');
+
+// Initialize marked before running tests
+test.before(async () => {
+  await initMarkedRenderer();
+});
 
 test('renders the supported CommonMark and GFM subset', () => {
   const html = renderMarkdownToHtml([

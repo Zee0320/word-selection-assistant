@@ -68,6 +68,8 @@ test('standalone chat parses stored and final streamed markdown through shared p
     'history-state',
     'conversation-title',
     'conversation-meta',
+    'conversation-context',
+    'conversation-context-text',
     'messages',
     'new-chat',
     'delete-chat',

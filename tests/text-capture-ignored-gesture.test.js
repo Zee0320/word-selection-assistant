@@ -76,20 +76,25 @@ function loadTextCaptureWithFakes({
 }
 
 test('ignored mouse gesture during pending capture does not cancel original text capture', async () => {
+  // Deferred promise to control when the capture resolves
   let resolveCapture;
-  const capturePromise = new Promise(resolve => {
-    resolveCapture = resolve;
-  });
+  const capturePromise = new Promise(resolve => { resolveCapture = resolve; });
+
   const { textCapture, handlers, restore } = loadTextCaptureWithFakes({
     readSelectedText: async () => capturePromise
   });
   const capturedTexts = [];
   const missedCaptures = [];
 
+  // Promise that resolves when onTextCaptured is called
+  let resolveTextCaptured;
+  const textCapturedPromise = new Promise(resolve => { resolveTextCaptured = resolve; });
+
   try {
     textCapture.init({
       onTextCaptured: text => {
         capturedTexts.push(text);
+        resolveTextCaptured();
       },
       onCapturePending: () => {},
       onCaptureMissed: captureId => missedCaptures.push(captureId)
@@ -97,17 +102,25 @@ test('ignored mouse gesture during pending capture does not cancel original text
     textCapture.setShouldIgnoreWindow(() => false);
     textCapture.setOnMouseDown((x, y) => x === 12 && y === 0);
 
+    // Start the original capture
     handlers.mousedown({ x: 0, y: 0 });
-    const originalCapture = handlers.mouseup({ x: 10, y: 0 });
+    handlers.mouseup({ x: 10, y: 0 });
 
+    // Trigger the ignored gesture while capture is pending
     handlers.mousedown({ x: 12, y: 0 });
     handlers.mouseup({ x: 12, y: 0 });
 
-    assert.deepEqual(capturedTexts, []);
+    // Prove the ignored gesture completed without resolving the capture
+    assert.deepEqual(capturedTexts, [], 'capture should not have completed yet');
 
+    // Now resolve the capture
     resolveCapture('hello');
-    await originalCapture;
-    assert.deepEqual(capturedTexts, ['hello']);
+
+    // Wait for onTextCaptured to be called
+    await textCapturedPromise;
+
+    // The original text should be captured
+    assert.deepEqual(capturedTexts, ['hello'], 'original capture should complete');
     assert.deepEqual(missedCaptures, []);
   } finally {
     restore();
