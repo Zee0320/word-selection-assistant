@@ -20,6 +20,8 @@ let lastShowTime = 0;
 const SHOW_GRACE_MS = 300; // 显示后 300ms 内不响应 mousedown 隐藏
 const PENDING_WATCHDOG_MS = 6000;
 const PENDING_INTERACTION_HOLD_MS = 1200;
+const CHAT_WINDOW_WIDTH = 360;
+const CHAT_WINDOW_HEIGHT = 56 + 420;
 
 function getOrCreateWindow() {
   if (floatingWin && !floatingWin.isDestroyed()) {
@@ -186,6 +188,62 @@ function hidePendingWindow(captureId = null) {
   hideWindow();
 }
 
+function showChatConversation(conversation) {
+  if (!conversation) return false;
+
+  const settings = getSettings();
+  if (!settings.aiChatEnabled) return false;
+
+  isPinned = false;
+  isExpanded = true;
+  isPendingToolbarVisible = false;
+  lastPendingInteractionTime = 0;
+  pendingRestoreFocusHandle = null;
+  activeCaptureId = null;
+  clearPendingWatchdog();
+
+  if (pendingHideTimer) {
+    clearTimeout(pendingHideTimer);
+    pendingHideTimer = null;
+  }
+  if (enableInteractionTimer) {
+    clearTimeout(enableInteractionTimer);
+    enableInteractionTimer = null;
+  }
+
+  const win = getOrCreateWindow();
+  const cursorPoint = screen.getCursorScreenPoint();
+  const clamped = clampToScreen(cursorPoint.x + 10, cursorPoint.y + 10, CHAT_WINDOW_WIDTH, CHAT_WINDOW_HEIGHT);
+
+  win.setBounds({
+    x: Math.round(clamped.x),
+    y: Math.round(clamped.y),
+    width: CHAT_WINDOW_WIDTH,
+    height: CHAT_WINDOW_HEIGHT
+  });
+
+  const sendAndShow = () => {
+    win.webContents.send('show-toolbar', {
+      text: '',
+      settings,
+      pinned: false,
+      expanded: true,
+      pending: false,
+      chatConversation: conversation
+    });
+    win.setFocusable(true);
+    win.show();
+    lastShowTime = Date.now();
+  };
+
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', sendAndShow);
+  } else {
+    sendAndShow();
+  }
+  return true;
+}
+
 function startPendingWatchdog(captureId = null) {
   clearPendingWatchdog();
   pendingWatchdogTimer = setTimeout(() => {
@@ -219,10 +277,16 @@ function requestHide(mouseX = null, mouseY = null) {
     return isInsideWindow;
   }
   if (isPendingToolbarVisible) {
-    console.log('[requestHide] Pending toolbar is visible, keeping visible');
-    markPendingInteraction();
-    extendGrace();
-    return true;
+    if (isInsideWindow || mouseX === null || mouseY === null) {
+      console.log('[requestHide] Pending toolbar is visible, keeping visible');
+      markPendingInteraction();
+      extendGrace();
+      return true;
+    }
+    console.log('[requestHide] Pending toolbar outside click, hiding immediately');
+    activeCaptureId = null;
+    hideWindow();
+    return false;
   }
   if (isInsideWindow) {
     console.log('[requestHide] Click inside floating window, keeping visible');
@@ -366,4 +430,4 @@ function restorePendingForegroundWindow() {
   }
 }
 
-module.exports = { showWindow, showPendingWindow, hideWindow, hidePendingWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, getWindowHandle, destroy, getOrCreateWindow };
+module.exports = { showWindow, showPendingWindow, showChatConversation, hideWindow, hidePendingWindow, requestHide, extendGrace, isVisible, resizeWindow, collapseWindow, moveWindow, setPinned, getPinned, getWebContents, getWindowHandle, destroy, getOrCreateWindow };

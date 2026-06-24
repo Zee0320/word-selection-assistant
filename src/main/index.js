@@ -9,17 +9,19 @@ const settingsWindow = require('./settings-window');
 const standaloneChatWindow = require('./standalone-chat-window');
 const tray = require('./tray');
 const {
+  createFloatingChatConversation,
   createStandaloneConversation,
   deleteStandaloneConversation,
   getSettings,
   getStandaloneChatState,
+  saveFloatingChatConversation,
   saveSettings,
   saveStandaloneConversation,
   selectStandaloneConversation
 } = require('./store');
 const { lookupWord } = require('./dictionary');
 const { classifyText, isChinese, translateSentence, aiChat } = require('./ai-client');
-const { renderMarkdownToHtml } = require('./markdown-renderer');
+const { renderMarkdownToHtml, initMarkedRenderer } = require('./markdown-renderer');
 
 // 单实例锁
 const gotLock = app.requestSingleInstanceLock();
@@ -34,20 +36,17 @@ app.on('second-instance', () => {
 // 阻止 Dock 出现（macOS），Windows 无效但无害
 app.dock?.hide();
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 初始化 Markdown 渲染器（marked v18+ 需要 async import）
+  await initMarkedRenderer();
+
   // 初始化托盘（必须在 ready 之后）
   tray.init();
 
   // 初始化文本捕获
   textCapture.init({
-    onCapturePending: (x, y, activeWindowHandle, captureId) => {
-      floatingWindow.showPendingWindow(x, y, activeWindowHandle, captureId);
-    },
     onTextCaptured: (text, x, y, activeWindowHandle, captureId) => {
       floatingWindow.showWindow(text, x, y, activeWindowHandle, { captureId });
-    },
-    onCaptureMissed: (captureId) => {
-      floatingWindow.hidePendingWindow(captureId);
     }
   });
   textCapture.setShouldIgnoreWindow((windowHandle) => {
@@ -173,6 +172,18 @@ ipcMain.handle('standalone-chat-save-conversation', (event, conversation) => {
   return saveStandaloneConversation(conversation);
 });
 
+ipcMain.handle('standalone-chat-open-floating', (event, conversation) => {
+  const state = saveStandaloneConversation(conversation);
+  const activeConversation = state.conversations.find(item => item.id === state.activeConversationId);
+  if (floatingWindow.showChatConversation(activeConversation)) {
+    standaloneChatWindow.hideChatWindow();
+  }
+  return {
+    ...state,
+    conversation: activeConversation
+  };
+});
+
 ipcMain.handle('standalone-chat-select-conversation', (event, conversationId) => {
   return selectStandaloneConversation(conversationId);
 });
@@ -181,7 +192,15 @@ ipcMain.handle('standalone-chat-delete-conversation', (event, conversationId) =>
   return deleteStandaloneConversation(conversationId);
 });
 
-ipcMain.on('standalone-chat-send', (event, { conversationId, messages }) => {
+ipcMain.handle('floating-chat-create-conversation', (event, payload) => {
+  return createFloatingChatConversation(payload);
+});
+
+ipcMain.handle('floating-chat-save-conversation', (event, conversation) => {
+  return saveFloatingChatConversation(conversation);
+});
+
+ipcMain.on('standalone-chat-send', (event, { conversationId, messages, selectedText = '' }) => {
   const settings = getSettings();
   const isGateway = settings.connectionMode === 'gateway';
   if (!settings.apiBaseUrl || !settings.chatModel || (!isGateway && !settings.apiKey)) {
@@ -193,7 +212,7 @@ ipcMain.on('standalone-chat-send', (event, { conversationId, messages }) => {
   }
 
   aiChat(
-    '',
+    selectedText,
     messages,
     (chunk) => event.sender.send('standalone-chat-stream-chunk', { conversationId, chunk }),
     () => event.sender.send('standalone-chat-stream-done', { conversationId }),

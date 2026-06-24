@@ -112,31 +112,17 @@ function init(callbackOrHandlers) {
       }
       return cachedActiveWindowInfo;
     };
-    const pendingSession = createPendingCaptureSession({
-      captureId,
-      mouseX: e.x,
-      mouseY: e.y,
-      getActiveWindowInfo,
-      shouldIgnoreWindow,
-      isCurrentCapture,
-      onPending: onCapturePending,
-      onMissed: onCaptureMissed
-    });
 
     // Let selection settle before reading, especially for double-click selection.
     await sleep(SELECTION_SETTLE_MS);
     const activeWindowInfo = await getActiveWindowInfo();
     if (!isCurrentCapture(captureId)) {
-      pendingSession.markResolved();
-      pendingSession.hideIfPending();
       return;
     }
 
     const activeWindowHandle = activeWindowInfo.hwnd;
 
     if (shouldIgnoreWindow && shouldIgnoreWindow(activeWindowHandle)) {
-      pendingSession.markResolved();
-      pendingSession.hideIfPending();
       console.log('[TextCapture] Ignored own application window');
       return;
     }
@@ -153,23 +139,21 @@ function init(callbackOrHandlers) {
       readViaClipboardFallback: captureSelectedTextFromClipboard,
       allowClipboardFallback
     });
-    pendingSession.markResolved();
 
     if (!isCurrentCapture(captureId)) {
-      pendingSession.hideIfPending();
       return;
     }
 
-    console.log('[TextCapture] Selected text:', selectedText ? `"${selectedText}"` : '(empty)');
+    const trimmedText = selectedText ? selectedText.trim() : '';
+    console.log('[TextCapture] Selected text:', trimmedText ? `"${trimmedText}"` : '(empty)');
 
-    if (!selectedText) {
-      pendingSession.hideIfPending();
+    if (!shouldShowToolbarForCapturedText(trimmedText)) {
       return;
     }
 
     if (onTextCaptured) {
-      console.log(`[TextCapture] Captured text: "${selectedText}"`);
-      onTextCaptured(selectedText, e.x, e.y, activeWindowHandle, captureId);
+      console.log(`[TextCapture] Captured text: "${trimmedText}"`);
+      onTextCaptured(trimmedText, e.x, e.y, activeWindowHandle, captureId);
     }
   });
 
@@ -211,6 +195,11 @@ function isRepeatedMouseUp(e, previousX, previousY, now, previousTime) {
     Math.abs(e.x - previousX) <= MULTI_CLICK_DISTANCE &&
     Math.abs(e.y - previousY) <= MULTI_CLICK_DISTANCE
   );
+}
+
+function shouldShowToolbarForCapturedText(text) {
+  if (text == null) return false;
+  return text.trim().length > 0;
 }
 
 function withTimeout(promise, timeoutMs, fallback = null) {
@@ -417,6 +406,7 @@ module.exports = {
   setShouldIgnoreWindow,
   _private: {
     createPendingCaptureSession,
-    isRepeatedMouseUp
+    isRepeatedMouseUp,
+    shouldShowToolbarForCapturedText
   }
 };

@@ -22,6 +22,7 @@ function openChatWindow(options = {}) {
 
   if (chatWin && !chatWin.isDestroyed()) {
     if (chatWin.isMinimized()) chatWin.restore();
+    if (!chatWin.isVisible()) chatWin.show();
     chatWin.focus();
     sendDraftText(draftText);
     return chatWin;
@@ -75,6 +76,12 @@ function getWindowHandle() {
   return null;
 }
 
+function hideChatWindow() {
+  if (chatWin && !chatWin.isDestroyed()) {
+    chatWin.hide();
+  }
+}
+
 function destroy() {
   if (chatWin && !chatWin.isDestroyed()) {
     chatWin.destroy();
@@ -82,4 +89,4 @@ function destroy() {
   }
 }
 
-module.exports = { openChatWindow, getWebContents, getWindowHandle, destroy };
+module.exports = { openChatWindow, getWebContents, getWindowHandle, hideChatWindow, destroy };

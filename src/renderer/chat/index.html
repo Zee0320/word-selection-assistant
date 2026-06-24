@@ -26,9 +26,15 @@
           <p id="conversation-meta">就绪</p>
         </div>
         <div class="header-actions">
+          <button id="open-floating-chat" class="text-button" type="button" aria-label="转为浮窗">转为浮窗</button>
           <button id="delete-chat" class="text-button danger" type="button">删除</button>
         </div>
       </header>
+
+      <section id="conversation-context" class="conversation-context hidden" aria-label="Selected text context">
+        <div class="conversation-context-label">Selected text</div>
+        <div id="conversation-context-text" class="conversation-context-text"></div>
+      </section>
 
       <section id="messages" class="messages" aria-live="polite"></section>
 

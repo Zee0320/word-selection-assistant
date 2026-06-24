@@ -12,6 +12,7 @@ let isPinned = false;
 let isTextPending = false;
 let floatingConversationId = '';
 let floatingConversationMetadata = {};
+let floatingConversationDetails = {};
 
 /**
  * Check if API is properly configured for the given purpose
@@ -84,6 +85,7 @@ const chatSendBtn = document.getElementById('chat-send-btn');
 const LABEL_TRANSLATE = '\u7ffb\u8bd1';
 const LABEL_CHAT = 'AI \u5bf9\u8bdd';
 const LABEL_PENDING = '\u6b63\u5728\u8bfb\u53d6\u9009\u4e2d\u6587\u5b57...';
+const CHAT_SCROLL_FOLLOW_THRESHOLD = 24;
 
 // ── 拖动功能 ──────────────────────────────────────────────
 
@@ -123,7 +125,7 @@ document.addEventListener('mousedown', () => {
   window.api.notifyInteraction();
 }, true);
 
-window.api.onShowToolbar(({ text, settings, pinned = false, expanded = false, pending = false }) => {
+window.api.onShowToolbar(({ text, settings, pinned = false, expanded = false, pending = false, chatConversation = null }) => {
   const activePanel = getActivePanel();
   const shouldPreservePanel = pinned && expanded && activePanel;
 
@@ -135,6 +137,14 @@ window.api.onShowToolbar(({ text, settings, pinned = false, expanded = false, pe
   cleanupStreamListeners();
   applyFeatureVisibility(settings);
   applyPendingState();
+
+  if (chatConversation) {
+    resetPanels();
+    loadFloatingConversation(chatConversation);
+    showChatPanel();
+    updatePinControls();
+    return;
+  }
 
   if (shouldPreservePanel === 'translation') {
     showTranslationPanel();
@@ -360,11 +370,28 @@ chatContextClear.addEventListener('click', (e) => {
  * Build payload for creating/saving floating conversation
  */
 function buildFloatingConversationPayload() {
-  return {
-    contextText: activeChatContext || currentText,
-    messages: [...chatMessages],
-    ...floatingConversationMetadata
+  const contextText = activeChatContext;
+  const metadata = {
+    ...floatingConversationMetadata,
+    source: 'floating'
   };
+  if (contextText) {
+    metadata.selectedContext = contextText;
+  } else {
+    delete metadata.selectedContext;
+  }
+
+  const payload = {
+    ...floatingConversationDetails,
+    contextText,
+    messages: [...chatMessages],
+    metadata
+  };
+  const conversationId = floatingConversationId || floatingConversationDetails.id;
+  if (conversationId) {
+    payload.id = conversationId;
+  }
+  return payload;
 }
 
 async function sendChatMessage() {
@@ -392,8 +419,15 @@ async function sendChatMessage() {
   if (!floatingConversationId) {
     try {
       const conv = await window.api.createFloatingConversation(buildFloatingConversationPayload());
-      if (conv && conv.id) {
-        floatingConversationId = conv.id;
+      const createdConversation = conv?.conversation || conv;
+      if (createdConversation && createdConversation.id) {
+        floatingConversationId = createdConversation.id;
+        floatingConversationDetails = {
+          ...floatingConversationDetails,
+          id: createdConversation.id,
+          title: createdConversation.title,
+          createdAt: createdConversation.createdAt
+        };
       }
     } catch (err) {
       console.error('[Renderer] Failed to create floating conversation:', err);
@@ -412,11 +446,14 @@ async function sendChatMessage() {
 window.api.onAiChatChunk((chunk) => {
   const lastMsg = chatMessages$?.lastElementChild;
   if (lastMsg?.classList.contains('streaming')) {
+    const shouldFollowScroll = shouldFollowChatScroll();
     const rawText = lastMsg.getAttribute('data-raw') || '';
     const newText = rawText + chunk;
     lastMsg.setAttribute('data-raw', newText);
     lastMsg.innerHTML = window.api.parseMarkdown(newText);
-    chatMessages$.scrollTop = chatMessages$.scrollHeight;
+    if (shouldFollowScroll) {
+      scrollChatToBottom();
+    }
   }
 });
 
@@ -436,7 +473,7 @@ window.api.onAiChatDone(() => {
 
     // Persist the assistant message
     if (floatingConversationId) {
-      window.api.saveFloatingConversation(floatingConversationId, buildFloatingConversationPayload())
+      window.api.saveFloatingConversation(buildFloatingConversationPayload())
         .catch(err => console.error('[Renderer] Failed to save floating conversation:', err));
     }
   }
@@ -458,7 +495,8 @@ window.api.onAiChatError((err) => {
   appendChatError(errorInfo.message, errorInfo.action);
 });
 
-function appendChatMessage(role, content) {
+function appendChatMessage(role, content, options = {}) {
+  const shouldFollowScroll = options.forceScroll || shouldFollowChatScroll();
   const el = document.createElement('div');
   el.className = `message ${role} markdown-body`;
   el.setAttribute('data-raw', content);
@@ -468,11 +506,14 @@ function appendChatMessage(role, content) {
     el.innerHTML = '';
   }
   chatMessages$.appendChild(el);
-  chatMessages$.scrollTop = chatMessages$.scrollHeight;
+  if (shouldFollowScroll) {
+    scrollChatToBottom();
+  }
   return el;
 }
 
 function appendChatError(msg, action) {
+  const shouldFollowScroll = shouldFollowChatScroll();
   const el = document.createElement('div');
   el.className = 'message-error';
   el.textContent = '⚠ ' + msg;
@@ -486,6 +527,19 @@ function appendChatError(msg, action) {
     el.appendChild(btn);
   }
 
+  if (shouldFollowScroll) {
+    scrollChatToBottom();
+  }
+}
+
+function shouldFollowChatScroll() {
+  if (!chatMessages$) return false;
+  if (chatMessages$.children.length === 0) return true;
+  const distanceFromBottom = chatMessages$.scrollHeight - chatMessages$.scrollTop - chatMessages$.clientHeight;
+  return distanceFromBottom <= CHAT_SCROLL_FOLLOW_THRESHOLD;
+}
+
+function scrollChatToBottom() {
   chatMessages$.scrollTop = chatMessages$.scrollHeight;
 }
 
@@ -556,6 +610,38 @@ function resetChatState() {
   chatSendBtn.disabled = false;
   floatingConversationId = '';
   floatingConversationMetadata = {};
+  floatingConversationDetails = {};
+}
+
+function loadFloatingConversation(conversation) {
+  const metadata = conversation.metadata || {};
+  const selectedContext = normalizeChatContext(metadata.selectedContext);
+
+  chatMessages = (conversation.messages || []).map(message => ({
+    role: message.role,
+    content: message.content || ''
+  }));
+  chatMessages$.innerHTML = '';
+  chatMessages.forEach(message => {
+    appendChatMessage(message.role, message.content, { forceScroll: true });
+  });
+
+  chatContext = selectedContext;
+  activeChatContext = selectedContext;
+  isChatContextFrozen = selectedContext !== '';
+  isChatContextExpanded = false;
+  floatingConversationId = conversation.id || '';
+  floatingConversationMetadata = { ...metadata };
+  floatingConversationDetails = {
+    id: conversation.id,
+    title: conversation.title,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt
+  };
+  updateChatContextUI();
+  chatInput.value = '';
+  isStreaming = false;
+  chatSendBtn.disabled = false;
 }
 
 function normalizeChatContext(text) {

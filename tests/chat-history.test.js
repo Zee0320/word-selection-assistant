@@ -7,6 +7,7 @@ const {
   createConversation,
   deleteConversation,
   deriveTitle,
+  getConversationSelectedContext,
   resolveActiveConversation,
   sortConversations,
   upsertConversation
@@ -96,4 +97,56 @@ test('restore-last-conversation setting controls active conversation selection',
 
 test('deriveTitle handles empty input', () => {
   assert.equal(deriveTitle('   '), '新会话');
+});
+
+test('normalizes selected context metadata without creating a chat message', () => {
+  const conversation = createConversation('Explain the selected code', {
+    metadata: {
+      selectedContext: '  const value = 1;  ',
+      source: 'floating'
+    }
+  });
+
+  assert.equal(conversation.metadata.selectedContext, 'const value = 1;');
+  assert.equal(conversation.metadata.source, 'floating');
+  assert.equal(conversation.messages.length, 1);
+  assert.equal(conversation.messages[0].content, 'Explain the selected code');
+});
+
+test('upsert and append preserve conversation metadata', () => {
+  const conversation = createConversation('Question', {
+    metadata: {
+      selectedContext: 'Selected paragraph',
+      source: 'floating'
+    }
+  });
+  const appended = appendMessages(conversation, [
+    { role: 'assistant', content: 'Answer' }
+  ]);
+  const upserted = upsertConversation([], appended);
+
+  assert.equal(appended.metadata.selectedContext, 'Selected paragraph');
+  assert.equal(upserted[0].metadata.selectedContext, 'Selected paragraph');
+  assert.equal(getConversationSelectedContext(upserted[0]), 'Selected paragraph');
+});
+
+
+test('floating conversations use source metadata and normal chat messages', () => {
+  const conversation = createConversation('What does this mean?', {
+    metadata: {
+      selectedContext: 'Selected API response',
+      source: 'floating'
+    }
+  });
+  const updated = appendMessages(conversation, [
+    { role: 'assistant', content: 'It means the request succeeded.' }
+  ]);
+
+  assert.deepEqual(updated.messages.map(message => message.role), ['user', 'assistant']);
+  assert.deepEqual(updated.messages.map(message => message.content), [
+    'What does this mean?',
+    'It means the request succeeded.'
+  ]);
+  assert.equal(updated.metadata.selectedContext, 'Selected API response');
+  assert.equal(updated.metadata.source, 'floating');
 });

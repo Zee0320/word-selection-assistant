@@ -25,6 +25,17 @@ function normalizeMessage(message) {
   };
 }
 
+function normalizeConversationMetadata(metadata = {}) {
+  const selectedContext = String(metadata.selectedContext || '').trim();
+  const source = String(metadata.source || '').trim();
+  const normalized = {};
+
+  if (selectedContext) normalized.selectedContext = selectedContext;
+  if (source) normalized.source = source;
+
+  return normalized;
+}
+
 function normalizeConversation(conversation) {
   const createdAt = conversation.createdAt || nowIso();
   const messages = Array.isArray(conversation.messages)
@@ -36,7 +47,8 @@ function normalizeConversation(conversation) {
     title: conversation.title || deriveTitle(messages.find(msg => msg.role === 'user')?.content),
     createdAt,
     updatedAt: conversation.updatedAt || createdAt,
-    messages
+    messages,
+    metadata: normalizeConversationMetadata(conversation.metadata)
   };
 }
 
@@ -47,7 +59,7 @@ function sortConversations(conversations) {
     .slice(0, MAX_CONVERSATIONS);
 }
 
-function createConversation(messageContent = '') {
+function createConversation(messageContent = '', options = {}) {
   const timestamp = nowIso();
   const messages = messageContent
     ? [normalizeMessage({ role: 'user', content: messageContent, createdAt: timestamp })]
@@ -58,8 +70,13 @@ function createConversation(messageContent = '') {
     title: messageContent ? deriveTitle(messageContent) : '新会话',
     createdAt: timestamp,
     updatedAt: timestamp,
-    messages
+    messages,
+    metadata: normalizeConversationMetadata(options.metadata)
   };
+}
+
+function getConversationSelectedContext(conversation) {
+  return normalizeConversationMetadata(conversation?.metadata).selectedContext || '';
 }
 
 function appendMessages(conversation, messages) {
@@ -127,6 +144,7 @@ module.exports = {
   createConversation,
   deleteConversation,
   deriveTitle,
+  getConversationSelectedContext,
   normalizeConversation,
   resolveActiveConversation,
   sortConversations,

@@ -8,7 +8,7 @@ const {
   _private
 } = require('../src/main/text-capture');
 
-const { createPendingCaptureSession, isRepeatedMouseUp } = _private;
+const { createPendingCaptureSession, isRepeatedMouseUp, shouldShowToolbarForCapturedText } = _private;
 
 function createImage(empty = false) {
   return {
@@ -330,4 +330,47 @@ test('pending capture session hides after pending capture becomes stale', async 
 
   assert.equal(session.wasPendingShown(), false);
   assert.deepEqual(missedCaptureIds, [14]);
+});
+
+test('shouldShowToolbarForCapturedText returns correct boolean for various inputs', () => {
+  assert.equal(shouldShowToolbarForCapturedText('hello'), true);
+  assert.equal(shouldShowToolbarForCapturedText('  hello  '), true);
+  assert.equal(shouldShowToolbarForCapturedText(''), false);
+  assert.equal(shouldShowToolbarForCapturedText('   \n\t  '), false);
+  assert.equal(shouldShowToolbarForCapturedText(null), false);
+  assert.equal(shouldShowToolbarForCapturedText(undefined), false);
+});
+
+test('captured text callback receives trimmed text only when capture is non-empty', () => {
+  const capturedTexts = [];
+
+  function notifyCapturedText(text) {
+    if (shouldShowToolbarForCapturedText(text)) {
+      capturedTexts.push(text.trim());
+    }
+  }
+
+  // Valid text is pushed after trimming
+  notifyCapturedText('  hello world  ');
+  assert.deepEqual(capturedTexts, ['hello world']);
+
+  // Empty string is not pushed
+  notifyCapturedText('');
+  assert.deepEqual(capturedTexts, ['hello world']);
+
+  // Whitespace-only string is not pushed
+  notifyCapturedText('   \n\t  ');
+  assert.deepEqual(capturedTexts, ['hello world']);
+
+  // null is not pushed
+  notifyCapturedText(null);
+  assert.deepEqual(capturedTexts, ['hello world']);
+
+  // undefined is not pushed
+  notifyCapturedText(undefined);
+  assert.deepEqual(capturedTexts, ['hello world']);
+
+  // Another valid text is pushed after trimming
+  notifyCapturedText('\tmore text\n');
+  assert.deepEqual(capturedTexts, ['hello world', 'more text']);
 });

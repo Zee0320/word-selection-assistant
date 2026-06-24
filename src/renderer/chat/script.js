@@ -5,14 +5,19 @@ let saveHistory = true;
 let isStreaming = false;
 let streamingConversationId = '';
 let streamingText = '';
+const BOTTOM_FOLLOW_THRESHOLD = 48;
+let shouldFollowMessagesBottom = true;
 
 const conversationList = document.getElementById('conversation-list');
 const historyState = document.getElementById('history-state');
 const conversationTitle = document.getElementById('conversation-title');
 const conversationMeta = document.getElementById('conversation-meta');
 const messagesEl = document.getElementById('messages');
+const contextSection = document.getElementById('conversation-context');
+const contextTextEl = document.getElementById('conversation-context-text');
 const newChatBtn = document.getElementById('new-chat');
 const deleteChatBtn = document.getElementById('delete-chat');
+const openFloatingChatBtn = document.getElementById('open-floating-chat');
 const composer = document.getElementById('composer');
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-chat');
@@ -34,6 +39,44 @@ function deriveTitle(content) {
 
 function getActiveConversation() {
   return conversations.find(item => item.id === activeConversationId) || null;
+}
+
+function getUrlSelectedContext() {
+  const params = new URLSearchParams(window.location.search);
+  const text = params.get('text');
+  return text ? decodeURIComponent(text) : '';
+}
+
+function getSelectedContext(conversation = getActiveConversation()) {
+  const urlContext = getUrlSelectedContext();
+  if (urlContext) return urlContext;
+  return String(conversation?.metadata?.selectedContext || '').trim();
+}
+
+function withSelectedContext(conversation) {
+  const selectedContext = getSelectedContext(conversation);
+  if (!selectedContext) return conversation;
+  return {
+    ...conversation,
+    metadata: {
+      ...(conversation.metadata || {}),
+      selectedContext
+    }
+  };
+}
+
+function isMessagesNearBottom() {
+  const remaining = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+  return remaining <= BOTTOM_FOLLOW_THRESHOLD;
+}
+
+function updateMessageFollowState() {
+  shouldFollowMessagesBottom = isMessagesNearBottom();
+}
+
+function scrollMessagesToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  shouldFollowMessagesBottom = true;
 }
 
 function createLocalConversation() {
@@ -99,8 +142,19 @@ function applyState(state) {
 
 function render() {
   renderHistory();
+  renderConversationContext();
   renderMessages();
   updateControls();
+}
+
+function renderConversationContext() {
+  const selectedText = getSelectedContext();
+  if (selectedText) {
+    contextTextEl.textContent = selectedText;
+    contextSection.classList.remove('hidden');
+  } else {
+    contextSection.classList.add('hidden');
+  }
 }
 
 function renderHistory() {
@@ -150,6 +204,7 @@ function renderHistory() {
 
 function renderMessages() {
   const conversation = getActiveConversation();
+  const shouldScrollAfterRender = shouldFollowMessagesBottom || isMessagesNearBottom();
   conversationTitle.textContent = conversation?.title || '新会话';
   const isActiveStreaming = conversation?.id === streamingConversationId;
   const messageCount = conversation?.messages?.length || 0;
@@ -172,7 +227,9 @@ function renderMessages() {
   if (isActiveStreaming) {
     messagesEl.appendChild(renderStreamingMessage(streamingText));
   }
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (shouldScrollAfterRender) {
+    scrollMessagesToBottom();
+  }
 }
 
 function renderMessage(role, content) {
@@ -184,9 +241,20 @@ function renderMessage(role, content) {
 }
 
 function updateControls() {
+  const conversation = getActiveConversation();
   const isActiveStreaming = isStreaming && activeConversationId === streamingConversationId;
   sendBtn.disabled = isStreaming;
-  deleteChatBtn.disabled = isActiveStreaming || !getActiveConversation();
+  deleteChatBtn.disabled = isActiveStreaming || !conversation;
+  openFloatingChatBtn.disabled = isActiveStreaming || !conversation;
+}
+
+function openFloatingConversation() {
+  const conversation = getActiveConversation();
+  const isActiveStreaming = isStreaming && conversation?.id === streamingConversationId;
+  if (!conversation || isActiveStreaming) return;
+  if (typeof window.api.openFloatingConversation === 'function') {
+    window.api.openFloatingConversation(withSelectedContext(conversation));
+  }
 }
 
 async function selectConversation(conversationId) {
@@ -270,6 +338,7 @@ async function sendMessage() {
     updatedAt: timestamp,
     messages: [...(conversation.messages || []), userMessage]
   };
+  conversation = withSelectedContext(conversation);
 
   chatInput.value = '';
   resizeInput();
@@ -282,15 +351,19 @@ async function sendMessage() {
   updateControls();
 
   const messages = conversation.messages.map(({ role, content }) => ({ role, content }));
-  window.api.sendChat(conversation.id, messages);
+  const selectedContext = getSelectedContext(conversation);
+  window.api.sendChat(conversation.id, messages, selectedContext);
 }
 
 function appendStreamingMessage() {
   if (activeConversationId !== streamingConversationId) return;
+  const shouldScrollAfterAppend = shouldFollowMessagesBottom || isMessagesNearBottom();
   const empty = messagesEl.querySelector('.empty-state');
   if (empty) empty.remove();
   messagesEl.appendChild(renderStreamingMessage(streamingText));
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (shouldScrollAfterAppend) {
+    scrollMessagesToBottom();
+  }
 }
 
 function renderStreamingMessage(content) {
@@ -302,11 +375,14 @@ function renderStreamingMessage(content) {
 function updateStreamingMessage(chunk) {
   streamingText += chunk;
   if (activeConversationId !== streamingConversationId) return;
+  const shouldScrollAfterUpdate = shouldFollowMessagesBottom || isMessagesNearBottom();
   const el = messagesEl.querySelector('.message.streaming');
   if (!el) return;
   el.setAttribute('data-raw', streamingText);
   el.innerHTML = window.api.parseMarkdown(streamingText);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (shouldScrollAfterUpdate) {
+    scrollMessagesToBottom();
+  }
 }
 
 async function finishStreaming(conversationId) {
@@ -387,10 +463,12 @@ function focusInput() {
 }
 
 newChatBtn.addEventListener('click', newConversation);
+openFloatingChatBtn.addEventListener('click', openFloatingConversation);
 deleteChatBtn.addEventListener('click', () => {
   const conversation = getActiveConversation();
   if (conversation) deleteConversation(conversation.id);
 });
+messagesEl.addEventListener('scroll', updateMessageFollowState);
 
 composer.addEventListener('submit', (event) => {
   event.preventDefault();

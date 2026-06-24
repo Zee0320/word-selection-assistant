@@ -45,6 +45,7 @@ function createElement(id, initialClass = '') {
     textContent: '',
     innerHTML: '',
     scrollHeight: 100,
+    clientHeight: 60,
     scrollTop: 0,
     disabled: false,
     readOnly: false,
@@ -175,15 +176,15 @@ function createRendererHarness() {
       const conv = { id: `conv-${savedConversations.length + 1}`, ...payload };
       savedConversations.push(conv);
       calls.push({ type: 'createFloatingConversation', payload });
-      return conv;
+      return { conversation: conv };
     },
-    saveFloatingConversation: async (id, payload) => {
-      const existing = savedConversations.find(c => c.id === id);
+    saveFloatingConversation: async (conversation) => {
+      const existing = savedConversations.find(c => c.id === conversation.id);
       if (existing) {
-        Object.assign(existing, payload);
+        Object.assign(existing, conversation);
       }
-      calls.push({ type: 'saveFloatingConversation', id, payload });
-      return existing || { id, ...payload };
+      calls.push({ type: 'saveFloatingConversation', conversation });
+      return existing || conversation;
     }
   };
 
@@ -376,6 +377,96 @@ test('floating chat persists conversation before sending to AI', async () => {
   assert.ok(aiSendCall, 'Should call aiChatSend');
 });
 
+test('show-toolbar loads existing floating conversation and continues in same conversation', async () => {
+  const { callbacks, elements, calls } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'ignored current selection',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'test-key',
+      chatModel: 'gpt-4'
+    },
+    pending: false,
+    chatConversation: {
+      id: 'existing-conversation',
+      messages: [
+        { role: 'user', content: 'Original question' },
+        { role: 'assistant', content: 'Original answer' }
+      ],
+      metadata: {
+        selectedContext: 'Frozen selected context'
+      }
+    }
+  });
+
+  assert.equal(elements['panel-chat'].classList.contains('active-panel'), true);
+  assert.equal(elements['chat-messages'].children.length, 2);
+  assert.equal(elements['chat-messages'].children[0].getAttribute('data-raw'), 'Original question');
+  assert.equal(elements['chat-messages'].children[1].getAttribute('data-raw'), 'Original answer');
+  assert.equal(elements['chat-context-text'].value, 'Frozen selected context');
+  assert.equal(elements['chat-context-text'].readOnly, true);
+
+  elements['chat-input'].value = 'Follow-up';
+  elements['chat-send-btn'].dispatchEvent('click');
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  assert.equal(calls.some(call => call.type === 'createFloatingConversation'), false);
+  const sendCall = calls.find(call => call.type === 'aiChatSend');
+  assert.equal(sendCall.selectedText, 'Frozen selected context');
+  assert.equal(sendCall.messages.length, 3);
+  assert.equal(sendCall.messages[2].content, 'Follow-up');
+
+  callbacks.aiChatChunk('Follow-up answer');
+  callbacks.aiChatDone();
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  const saveCall = calls.find(call => call.type === 'saveFloatingConversation');
+  assert.equal(saveCall.conversation.id, 'existing-conversation');
+  assert.equal(saveCall.conversation.messages.length, 4);
+  assert.equal(saveCall.conversation.messages[3].content, 'Follow-up answer');
+});
+
+test('floating chat streaming preserves manual scroll until user returns near bottom', async () => {
+  const { callbacks, elements } = createRendererHarness();
+
+  callbacks.showToolbar({
+    text: 'Selected text',
+    settings: {
+      translationEnabled: true,
+      aiChatEnabled: true,
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'test-key',
+      chatModel: 'gpt-4'
+    },
+    pending: false
+  });
+  elements['btn-chat'].dispatchEvent('click');
+
+  const chatMessages = elements['chat-messages'];
+  chatMessages.clientHeight = 100;
+  chatMessages.scrollHeight = 500;
+  chatMessages.scrollTop = 400;
+
+  elements['chat-input'].value = 'Question';
+  elements['chat-send-btn'].dispatchEvent('click');
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  callbacks.aiChatChunk('near bottom');
+  assert.equal(chatMessages.scrollTop, 500);
+
+  chatMessages.scrollHeight = 800;
+  chatMessages.scrollTop = 100;
+  callbacks.aiChatChunk(' while reading older text');
+  assert.equal(chatMessages.scrollTop, 100);
+
+  chatMessages.scrollTop = 700;
+  callbacks.aiChatChunk(' after returning to bottom');
+  assert.equal(chatMessages.scrollTop, 800);
+});
+
 test('floating chat persists assistant message on done', async () => {
   const { callbacks, elements, calls, savedConversations } = createRendererHarness();
 
@@ -419,12 +510,12 @@ test('floating chat persists assistant message on done', async () => {
   const saveCall = calls.find(c => c.type === 'saveFloatingConversation');
   assert.ok(saveCall, 'Should call saveFloatingConversation after AI done');
 
-  // The payload should contain both messages
-  assert.equal(saveCall.payload.messages.length, 2);
-  assert.equal(saveCall.payload.messages[0].role, 'user');
-  assert.equal(saveCall.payload.messages[0].content, 'What is this?');
-  assert.equal(saveCall.payload.messages[1].role, 'assistant');
-  assert.equal(saveCall.payload.messages[1].content, 'This is the answer.');
+  // The conversation should contain both messages
+  assert.equal(saveCall.conversation.messages.length, 2);
+  assert.equal(saveCall.conversation.messages[0].role, 'user');
+  assert.equal(saveCall.conversation.messages[0].content, 'What is this?');
+  assert.equal(saveCall.conversation.messages[1].role, 'assistant');
+  assert.equal(saveCall.conversation.messages[1].content, 'This is the answer.');
 });
 
 test('floating chat keeps user message on AI error', async () => {
@@ -487,13 +578,13 @@ test('floating chat keeps user message on AI error', async () => {
   assert.ok(nextSaveCall, 'Should call saveFloatingConversation after successful AI response');
 
   // The messages should include the first user message (kept after error) + second user message + assistant
-  assert.equal(nextSaveCall.payload.messages.length, 3);
-  assert.equal(nextSaveCall.payload.messages[0].role, 'user');
-  assert.equal(nextSaveCall.payload.messages[0].content, 'What is this?');
-  assert.equal(nextSaveCall.payload.messages[1].role, 'user');
-  assert.equal(nextSaveCall.payload.messages[1].content, 'Try again');
-  assert.equal(nextSaveCall.payload.messages[2].role, 'assistant');
-  assert.equal(nextSaveCall.payload.messages[2].content, 'Success');
+  assert.equal(nextSaveCall.conversation.messages.length, 3);
+  assert.equal(nextSaveCall.conversation.messages[0].role, 'user');
+  assert.equal(nextSaveCall.conversation.messages[0].content, 'What is this?');
+  assert.equal(nextSaveCall.conversation.messages[1].role, 'user');
+  assert.equal(nextSaveCall.conversation.messages[1].content, 'Try again');
+  assert.equal(nextSaveCall.conversation.messages[2].role, 'assistant');
+  assert.equal(nextSaveCall.conversation.messages[2].content, 'Success');
 });
 
 test('chat context card starts collapsed with selected text', () => {

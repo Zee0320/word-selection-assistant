@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld('api', {
   // Markdown 解析 - 通过 IPC 调用主进程处理
   parseMarkdown: (text) => ipcRenderer.sendSync('parse-markdown', text),
 
+  // Floating chat conversation management
+  createFloatingConversation: (payload) => ipcRenderer.invoke('floating-chat-create-conversation', payload),
+  saveFloatingConversation: (conversation) => ipcRenderer.invoke('floating-chat-save-conversation', conversation),
+
   // 诊断日志（发送到main进程console）
   log: (msg) => ipcRenderer.send('diagnostic-log', msg)
 });
