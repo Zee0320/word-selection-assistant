@@ -112,17 +112,39 @@ function init(callbackOrHandlers) {
       }
       return cachedActiveWindowInfo;
     };
+    // Only drags get a pending toolbar. Double-clicks often activate non-text UI
+    // such as Explorer folders, so wait until text is actually captured.
+    let pendingSession = {
+      markResolved() {},
+      hideIfPending() {}
+    };
+    if (isDrag) {
+      pendingSession = createPendingCaptureSession({
+        captureId,
+        mouseX: e.x,
+        mouseY: e.y,
+        getActiveWindowInfo,
+        shouldIgnoreWindow,
+        isCurrentCapture,
+        onPending: onCapturePending,
+        onMissed: onCaptureMissed
+      });
+    }
 
     // Let selection settle before reading, especially for double-click selection.
     await sleep(SELECTION_SETTLE_MS);
     const activeWindowInfo = await getActiveWindowInfo();
     if (!isCurrentCapture(captureId)) {
+      pendingSession.markResolved();
+      pendingSession.hideIfPending();
       return;
     }
 
     const activeWindowHandle = activeWindowInfo.hwnd;
 
     if (shouldIgnoreWindow && shouldIgnoreWindow(activeWindowHandle)) {
+      pendingSession.markResolved();
+      pendingSession.hideIfPending();
       console.log('[TextCapture] Ignored own application window');
       return;
     }
@@ -139,8 +161,10 @@ function init(callbackOrHandlers) {
       readViaClipboardFallback: captureSelectedTextFromClipboard,
       allowClipboardFallback
     });
+    pendingSession.markResolved();
 
     if (!isCurrentCapture(captureId)) {
+      pendingSession.hideIfPending();
       return;
     }
 
@@ -148,6 +172,7 @@ function init(callbackOrHandlers) {
     console.log('[TextCapture] Selected text:', trimmedText ? `"${trimmedText}"` : '(empty)');
 
     if (!shouldShowToolbarForCapturedText(trimmedText)) {
+      pendingSession.hideIfPending();
       return;
     }
 
