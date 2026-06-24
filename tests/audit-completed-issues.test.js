@@ -13,6 +13,9 @@ const {
   FORBIDDEN_VERIFICATION_TEXT,
   fileExists,
   findForbiddenPattern,
+  parseStatusSection,
+  parseManualResultRows,
+  classifyStructuredStatus,
   checkRequiredPatterns,
   readPngDimensions,
   validatePngEvidence
@@ -70,6 +73,16 @@ test('ISSUE_CONFIG issue 5 has correct worktree path', () => {
   assert.equal(ISSUE_CONFIG['5'].root, '.claude/worktrees/issue-5');
 });
 
+test('ISSUE_CONFIG issue 5 requires all context card screenshots', () => {
+  assert.deepEqual(ISSUE_CONFIG['5'].requiredPngEvidence, [
+    'docs/superpowers/verification/issue-5/collapsed-context-card.png',
+    'docs/superpowers/verification/issue-5/expanded-context-card.png',
+    'docs/superpowers/verification/issue-5/locked-context-card.png',
+    'docs/superpowers/verification/issue-5/empty-context-card.png',
+    'docs/superpowers/verification/issue-5/after-clear-context-card.png'
+  ]);
+});
+
 test('ISSUE_CONFIG issue 6 has correct worktree path', () => {
   assert.equal(ISSUE_CONFIG['6'].root, '.claude/worktrees/issue-6-empty-selection');
 });
@@ -98,6 +111,99 @@ test('findForbiddenPattern is case-insensitive', () => {
 test('findForbiddenPattern handles null and undefined', () => {
   assert.equal(findForbiddenPattern(null), null);
   assert.equal(findForbiddenPattern(undefined), null);
+});
+
+test('parseStatusSection returns only the first meaningful line under Status', () => {
+  const markdown = [
+    '# Verification',
+    '',
+    '## Status',
+    '',
+    '*PASS* - Manual checks complete',
+    'Expected FAIL in prior run is now resolved.',
+    '',
+    '## Notes',
+    'PENDING follow-up note from history'
+  ].join('\n');
+
+  assert.equal(parseStatusSection(markdown), 'PASS - Manual checks complete');
+});
+
+test('parseStatusSection ignores forbidden words outside Status', () => {
+  const markdown = [
+    'PENDING note from older run',
+    '',
+    '## Status',
+    '',
+    'PASS',
+    '',
+    '## Notes',
+    'expected FAIL in historical prose'
+  ].join('\n');
+
+  assert.equal(parseStatusSection(markdown), 'PASS');
+});
+
+test('parseStatusSection detects blocked structured status', () => {
+  const markdown = [
+    '## Status',
+    '',
+    '`BLOCKED` waiting for device access'
+  ].join('\n');
+
+  assert.equal(parseStatusSection(markdown), 'BLOCKED waiting for device access');
+  assert.equal(classifyStructuredStatus(parseStatusSection(markdown)), 'blocked');
+});
+
+test('parseManualResultRows extracts only Result column values', () => {
+  const markdown = [
+    '## Manual Checks',
+    '',
+    '| Scenario | Result | Notes |',
+    '| --- | --- | --- |',
+    '| Collapsed | PASS | ok |',
+    '| Expanded | BLOCKED | waiting |',
+    '| Locked | PASS | ok |'
+  ].join('\n');
+
+  assert.deepEqual(parseManualResultRows(markdown), ['PASS', 'BLOCKED', 'PASS']);
+});
+
+test('parseManualResultRows ignores non-table prose with forbidden words', () => {
+  const markdown = [
+    'Expected FAIL from old run.',
+    'capture remains pending until screenshot upload.',
+    '',
+    '| Scenario | Result | Notes |',
+    '| --- | --- | --- |',
+    '| Manual verification | PASS | complete |'
+  ].join('\n');
+
+  assert.deepEqual(parseManualResultRows(markdown), ['PASS']);
+});
+
+test('parseManualResultRows marks blank Result cells as missing', () => {
+  const markdown = [
+    '## Manual Checks',
+    '',
+    '| Scenario | Result | Notes |',
+    '| --- | --- | --- |',
+    '| Windows capture |  | not done |'
+  ].join('\n');
+
+  assert.deepEqual(parseManualResultRows(markdown), ['MISSING']);
+});
+
+test('parseManualResultRows marks rows with missing Result cells as missing', () => {
+  const markdown = [
+    '## Manual Checks',
+    '',
+    '| Scenario | Result | Notes |',
+    '| --- | --- | --- |',
+    '| Windows capture |'
+  ].join('\n');
+
+  assert.deepEqual(parseManualResultRows(markdown), ['MISSING']);
 });
 
 test('fileExists returns correct results', () => {
@@ -212,7 +318,136 @@ test('auditIssue fails when verification contains BLOCKED', () => {
     const result = auditIssue('101', config, tempDir);
 
     assert.equal(result.passed, false);
-    assert.ok(result.errors.some(e => e.includes('BLOCKED')));
+    assert.ok(result.errors.includes('Verification Status is not PASS: BLOCKED'));
+  } finally {
+    cleanupTempDir(tempDir);
+  }
+});
+
+test('auditIssue fails when manual Result contains PENDING', () => {
+  const tempDir = createTempDir();
+  try {
+    const worktreePath = path.join(tempDir, 'issue-103');
+    fs.mkdirSync(path.join(worktreePath, 'src/main'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'docs/superpowers/verification'), { recursive: true });
+
+    fs.writeFileSync(path.join(worktreePath, 'src/main/code.js'), 'module.exports = { feature: true };');
+    fs.writeFileSync(path.join(worktreePath, 'tests/code.test.js'), 'Feature implementation complete');
+    fs.writeFileSync(
+      path.join(worktreePath, 'docs/superpowers/verification/2026-06-14-issue-103.md'),
+      [
+        '# Verification',
+        '',
+        '## Status',
+        '',
+        'PASS',
+        '',
+        '## Manual Checks',
+        '',
+        '| Scenario | Result | Notes |',
+        '| --- | --- | --- |',
+        '| Windows capture | PENDING | waiting for device |'
+      ].join('\n')
+    );
+
+    const config = {
+      root: 'issue-103',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-103.md',
+      requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
+      requiredVerificationText: ['PASS']
+    };
+
+    const result = auditIssue('103', config, tempDir);
+
+    assert.equal(result.passed, false);
+    assert.ok(result.errors.includes('Verification manual Result contains incomplete marker: PENDING'));
+  } finally {
+    cleanupTempDir(tempDir);
+  }
+});
+
+test('auditIssue fails when manual Result cell is blank', () => {
+  const tempDir = createTempDir();
+  try {
+    const worktreePath = path.join(tempDir, 'issue-105');
+    fs.mkdirSync(path.join(worktreePath, 'src/main'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'docs/superpowers/verification'), { recursive: true });
+
+    fs.writeFileSync(path.join(worktreePath, 'src/main/code.js'), 'module.exports = { feature: true };');
+    fs.writeFileSync(path.join(worktreePath, 'tests/code.test.js'), 'Feature implementation complete');
+    fs.writeFileSync(
+      path.join(worktreePath, 'docs/superpowers/verification/2026-06-14-issue-105.md'),
+      [
+        '# Verification',
+        '',
+        '## Status',
+        '',
+        'PASS',
+        '',
+        '## Manual Checks',
+        '',
+        '| Scenario | Result | Notes |',
+        '| --- | --- | --- |',
+        '| Windows capture |  | not done |'
+      ].join('\n')
+    );
+
+    const config = {
+      root: 'issue-105',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-105.md',
+      requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
+      requiredVerificationText: ['PASS']
+    };
+
+    const result = auditIssue('105', config, tempDir);
+
+    assert.equal(result.passed, false);
+    assert.ok(result.errors.includes('Verification manual Result contains incomplete marker: MISSING'));
+  } finally {
+    cleanupTempDir(tempDir);
+  }
+});
+
+test('auditIssue fails when manual Result cell is missing from the row', () => {
+  const tempDir = createTempDir();
+  try {
+    const worktreePath = path.join(tempDir, 'issue-106');
+    fs.mkdirSync(path.join(worktreePath, 'src/main'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'docs/superpowers/verification'), { recursive: true });
+
+    fs.writeFileSync(path.join(worktreePath, 'src/main/code.js'), 'module.exports = { feature: true };');
+    fs.writeFileSync(path.join(worktreePath, 'tests/code.test.js'), 'Feature implementation complete');
+    fs.writeFileSync(
+      path.join(worktreePath, 'docs/superpowers/verification/2026-06-14-issue-106.md'),
+      [
+        '# Verification',
+        '',
+        '## Status',
+        '',
+        'PASS',
+        '',
+        '## Manual Checks',
+        '',
+        '| Scenario | Result | Notes |',
+        '| --- | --- | --- |',
+        '| Windows capture |'
+      ].join('\n')
+    );
+
+    const config = {
+      root: 'issue-106',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-106.md',
+      requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
+      requiredVerificationText: ['PASS']
+    };
+
+    const result = auditIssue('106', config, tempDir);
+
+    assert.equal(result.passed, false);
+    assert.ok(result.errors.includes('Verification manual Result contains incomplete marker: MISSING'));
   } finally {
     cleanupTempDir(tempDir);
   }
@@ -237,7 +472,25 @@ test('auditIssue passes when all requirements are met', () => {
     );
     fs.writeFileSync(
       path.join(worktreePath, 'docs/superpowers/verification/2026-06-14-issue-102.md'),
-      '# Verification\n\n## Changed Files\n\n- src/main/code.js\n\n## Tests\n\nnpm test\nResult: PASS'
+      [
+        '# Verification',
+        '',
+        '## Status',
+        '',
+        'PASS',
+        '',
+        '## Changed Files',
+        '',
+        '- src/main/code.js',
+        '',
+        '## Tests',
+        '',
+        'npm test',
+        '',
+        '| Scenario | Result | Notes |',
+        '| --- | --- | --- |',
+        '| Manual verification | PASS | complete |'
+      ].join('\n')
     );
 
     const config = {
@@ -251,6 +504,132 @@ test('auditIssue passes when all requirements are met', () => {
 
     assert.equal(result.passed, true);
     assert.equal(result.errors.length, 0);
+  } finally {
+    cleanupTempDir(tempDir);
+  }
+});
+
+test('auditIssue ignores forbidden words in historical prose when Status is PASS', () => {
+  const tempDir = createTempDir();
+  try {
+    const worktreePath = path.join(tempDir, 'issue-104');
+    fs.mkdirSync(path.join(worktreePath, 'src/main'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(worktreePath, 'docs/superpowers/verification'), { recursive: true });
+
+    fs.writeFileSync(path.join(worktreePath, 'src/main/code.js'), 'module.exports = { feature: true };');
+    fs.writeFileSync(path.join(worktreePath, 'tests/code.test.js'), 'Feature implementation complete');
+    fs.writeFileSync(
+      path.join(worktreePath, 'docs/superpowers/verification/2026-06-14-issue-104.md'),
+      [
+        '# Verification',
+        '',
+        '## Status',
+        '',
+        'PASS',
+        '',
+        '## Manual Checks',
+        '',
+        '| Scenario | Result | Notes |',
+        '| --- | --- | --- |',
+        '| Windows audit | PASS | complete |',
+        '',
+        '## Notes',
+        '',
+        'Historical note: capture remains pending in old environment.',
+        'Historical note: expected FAIL before the fix landed.',
+        '',
+        '## Changed Files',
+        '- src/main/code.js',
+        '',
+        '## Tests',
+        'npm test'
+      ].join('\n')
+    );
+
+    const config = {
+      root: 'issue-104',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-104.md',
+      requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
+      requiredVerificationText: ['PASS', 'npm test']
+    };
+
+    const result = auditIssue('104', config, tempDir);
+
+    assert.equal(result.passed, true);
+    assert.deepEqual(result.errors, []);
+  } finally {
+    cleanupTempDir(tempDir);
+  }
+});
+
+test('auditIssue resolves configured worktree roots against the main repo from a linked worktree', () => {
+  const tempDir = createTempDir();
+  try {
+    const mainRepoRoot = path.join(tempDir, 'repo');
+    const linkedWorktreeRoot = path.join(mainRepoRoot, '.claude', 'worktrees', 'audit-structured-status-fix');
+    const targetWorktree = path.join(mainRepoRoot, '.claude', 'worktrees', 'issue-200');
+
+    fs.mkdirSync(path.join(targetWorktree, 'src/main'), { recursive: true });
+    fs.mkdirSync(path.join(targetWorktree, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(targetWorktree, 'docs/superpowers/verification'), { recursive: true });
+
+    fs.writeFileSync(path.join(targetWorktree, 'src/main/code.js'), 'module.exports = { feature: true };');
+    fs.writeFileSync(path.join(targetWorktree, 'tests/code.test.js'), 'Feature implementation complete');
+    fs.writeFileSync(
+      path.join(targetWorktree, 'docs/superpowers/verification/2026-06-14-issue-200.md'),
+      '# Verification\n\n## Status\n\nPASS\n\n## Tests\n\nnpm test'
+    );
+
+    fs.mkdirSync(linkedWorktreeRoot, { recursive: true });
+
+    const result = auditIssue('200', {
+      root: '.claude/worktrees/issue-200',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-200.md',
+      requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
+      requiredVerificationText: ['PASS', 'npm test']
+    }, linkedWorktreeRoot);
+
+    assert.equal(result.passed, true);
+    assert.deepEqual(result.errors, []);
+  } finally {
+    cleanupTempDir(tempDir);
+  }
+});
+
+test('auditIssue prefers the main repo peer worktree over a stale nested worktree path', () => {
+  const tempDir = createTempDir();
+  try {
+    const mainRepoRoot = path.join(tempDir, 'repo');
+    const linkedWorktreeRoot = path.join(mainRepoRoot, '.claude', 'worktrees', 'audit-structured-status-fix');
+    const nestedPeerPath = path.join(linkedWorktreeRoot, '.claude', 'worktrees', 'issue-201');
+    const mainPeerPath = path.join(mainRepoRoot, '.claude', 'worktrees', 'issue-201');
+
+    fs.mkdirSync(path.join(nestedPeerPath, 'docs/superpowers/verification'), { recursive: true });
+    fs.writeFileSync(
+      path.join(nestedPeerPath, 'docs/superpowers/verification/2026-06-14-issue-201.md'),
+      '# Verification\n\n## Status\n\nPASS\n'
+    );
+
+    fs.mkdirSync(path.join(mainPeerPath, 'src/main'), { recursive: true });
+    fs.mkdirSync(path.join(mainPeerPath, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(mainPeerPath, 'docs/superpowers/verification'), { recursive: true });
+    fs.writeFileSync(path.join(mainPeerPath, 'src/main/code.js'), 'module.exports = { feature: true };');
+    fs.writeFileSync(path.join(mainPeerPath, 'tests/code.test.js'), 'Feature implementation complete');
+    fs.writeFileSync(
+      path.join(mainPeerPath, 'docs/superpowers/verification/2026-06-14-issue-201.md'),
+      '# Verification\n\n## Status\n\nPASS\n\n## Tests\n\nnpm test'
+    );
+
+    const result = auditIssue('201', {
+      root: '.claude/worktrees/issue-201',
+      verificationFile: 'docs/superpowers/verification/2026-06-14-issue-201.md',
+      requiredFiles: ['src/main/code.js', 'tests/code.test.js'],
+      requiredVerificationText: ['PASS', 'npm test']
+    }, linkedWorktreeRoot);
+
+    assert.equal(result.passed, true);
+    assert.deepEqual(result.errors, []);
   } finally {
     cleanupTempDir(tempDir);
   }
@@ -276,22 +655,19 @@ test('issue 3 worktree audit reflects BLOCKED status (UOS ARM64 implementation)'
   const result = auditIssue('3', ISSUE_CONFIG['3'], PROJECT_ROOT);
   // Issue 3 verification is BLOCKED - needs UOS ARM64 hardware for manual verification
   assert.equal(result.passed, false);
-  assert.ok(result.errors.some(e => e.includes('BLOCKED')));
+  assert.ok(result.errors.some(e => e.startsWith('Verification Status is not PASS: BLOCKED')));
 });
 
-test('issue 6 worktree audit reflects PENDING status (empty selection gate)', () => {
+test('issue 6 worktree audit passes (empty selection gate)', () => {
   const result = auditIssue('6', ISSUE_CONFIG['6'], PROJECT_ROOT);
-  // Issue 6 verification has PENDING in manual checks table
-  // This is a legitimate PENDING state - manual Windows testing required
-  assert.equal(result.passed, false);
-  assert.ok(result.errors.some(e => e.includes('PENDING')));
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.errors, []);
 });
 
-test('issue 2 worktree audit reflects BLOCKED status', () => {
+test('issue 2 worktree audit passes', () => {
   const result = auditIssue('2', ISSUE_CONFIG['2'], PROJECT_ROOT);
-  // Issue 2 verification explicitly says BLOCKED - needs screenshots
-  assert.equal(result.passed, false);
-  assert.ok(result.errors.some(e => e.includes('BLOCKED')));
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.errors, []);
 });
 
 test('validatePngEvidence rejects a 1x1 placeholder', () => {

@@ -4,7 +4,7 @@
  * Verifies that completed issues have all required artifacts:
  * - Required files exist in the worktree
  * - Verification file exists and contains required text
- * - No forbidden incomplete markers in verification file
+ * - Structured Status is PASS and manual Result table rows are all PASS
  */
 
 const fs = require('fs');
@@ -83,6 +83,13 @@ const ISSUE_CONFIG = {
       'Changed Files',
       'PASS',
       'npm test'
+    ],
+    requiredPngEvidence: [
+      'docs/superpowers/verification/issue-5/collapsed-context-card.png',
+      'docs/superpowers/verification/issue-5/expanded-context-card.png',
+      'docs/superpowers/verification/issue-5/locked-context-card.png',
+      'docs/superpowers/verification/issue-5/empty-context-card.png',
+      'docs/superpowers/verification/issue-5/after-clear-context-card.png'
     ]
   },
   '6': {
@@ -214,6 +221,178 @@ function checkRequiredPatterns(text, requiredPatterns) {
   return { found, missing };
 }
 
+function normalizeCell(value) {
+  return String(value || '')
+    .replace(/[*_`\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitTableRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.includes('|')) {
+    return [];
+  }
+
+  let content = trimmed;
+  if (content.startsWith('|')) {
+    content = content.slice(1);
+  }
+  if (content.endsWith('|')) {
+    content = content.slice(0, -1);
+  }
+
+  return content.split('|').map(cell => normalizeCell(cell));
+}
+
+function isSeparatorRow(cells) {
+  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, '')));
+}
+
+function parseStatusSection(markdown) {
+  if (!markdown) {
+    return null;
+  }
+
+  const lines = String(markdown).split(/\r?\n/);
+  let inStatusSection = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+
+    if (!inStatusSection) {
+      if (/^##\s+Status\b/i.test(trimmed)) {
+        inStatusSection = true;
+      }
+      continue;
+    }
+
+    if (/^##\s+/.test(trimmed)) {
+      return null;
+    }
+
+    if (!trimmed) {
+      continue;
+    }
+
+    const normalized = normalizeCell(trimmed);
+    const match = normalized.match(/^(PASS|FAILED|FAIL|BLOCKED|PENDING|PARTIAL|IN_PROGRESS|SKIPPED)\b(?:\s*[:\-]?\s*(.*))?$/i);
+    if (!match) {
+      return normalized || null;
+    }
+
+    const token = match[1].toUpperCase();
+    return normalized.replace(/^[A-Za-z_]+/, token);
+  }
+
+  return null;
+}
+
+function classifyStructuredStatus(value) {
+  const normalized = normalizeCell(value);
+  if (!normalized) {
+    return 'missing';
+  }
+
+  const upper = normalized.toUpperCase();
+  if (upper === 'PASS' || upper.startsWith('PASS ')) {
+    return 'pass';
+  }
+  if (upper === 'FAIL' || upper.startsWith('FAIL ') || upper === 'FAILED' || upper.startsWith('FAILED ')) {
+    return 'failed';
+  }
+  if (
+    upper === 'BLOCKED' || upper.startsWith('BLOCKED ') ||
+    upper === 'PENDING' || upper.startsWith('PENDING ') ||
+    upper === 'PARTIAL' || upper.startsWith('PARTIAL ') ||
+    upper === 'IN_PROGRESS' || upper.startsWith('IN_PROGRESS ') ||
+    upper === 'SKIPPED' || upper.startsWith('SKIPPED ')
+  ) {
+    return 'blocked';
+  }
+  return 'unknown';
+}
+
+function parseManualResultRows(markdown) {
+  if (!markdown) {
+    return [];
+  }
+
+  const lines = String(markdown).split(/\r?\n/);
+  const results = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const headerCells = splitTableRow(lines[index]);
+    if (headerCells.length === 0) {
+      continue;
+    }
+
+    const resultColumnIndex = headerCells.findIndex(cell => cell.toUpperCase() === 'RESULT');
+    if (resultColumnIndex === -1) {
+      continue;
+    }
+
+    const separatorCells = splitTableRow(lines[index + 1] || '');
+    if (!isSeparatorRow(separatorCells)) {
+      continue;
+    }
+
+    index += 2;
+    for (; index < lines.length; index += 1) {
+      const rowCells = splitTableRow(lines[index]);
+      if (rowCells.length === 0) {
+        index -= 1;
+        break;
+      }
+      if (isSeparatorRow(rowCells)) {
+        continue;
+      }
+
+      const resultValue = normalizeCell(rowCells[resultColumnIndex]);
+      results.push(resultValue || 'MISSING');
+    }
+  }
+
+  return results;
+}
+
+function hasFailingManualResult(markdown) {
+  for (const value of parseManualResultRows(markdown)) {
+    if (classifyStructuredStatus(value) !== 'pass') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function resolveAuditRoot(projectRoot, configuredRoot) {
+  const normalizedProjectRoot = path.resolve(projectRoot);
+  const marker = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
+  const markerIndex = normalizedProjectRoot.lastIndexOf(marker);
+  const normalizedConfiguredRoot = String(configuredRoot || '').replace(/[\\/]+/g, '/');
+  const isPeerWorktreeRoot = normalizedConfiguredRoot.startsWith('.claude/worktrees/');
+
+  if (markerIndex !== -1 && isPeerWorktreeRoot) {
+    const mainRepoRoot = normalizedProjectRoot.slice(0, markerIndex);
+    const preferredRoot = path.resolve(mainRepoRoot, configuredRoot);
+    if (fs.existsSync(preferredRoot)) {
+      return preferredRoot;
+    }
+  }
+
+  const resolvedRoot = path.resolve(projectRoot, configuredRoot);
+  if (fs.existsSync(resolvedRoot)) {
+    return resolvedRoot;
+  }
+
+  if (markerIndex === -1) {
+    return resolvedRoot;
+  }
+
+  const mainRepoRoot = normalizedProjectRoot.slice(0, markerIndex);
+  return path.resolve(mainRepoRoot, configuredRoot);
+}
+
 /**
  * Audit a single issue
  * @param {string} issueNumber - Issue number to audit
@@ -225,7 +404,7 @@ function auditIssue(issueNumber, config, projectRoot = '.') {
   const errors = [];
   const warnings = [];
 
-  const worktreePath = path.resolve(projectRoot, config.root);
+  const worktreePath = resolveAuditRoot(projectRoot, config.root);
 
   // Check 1: Worktree exists
   if (!fs.existsSync(worktreePath)) {
@@ -240,27 +419,33 @@ function auditIssue(issueNumber, config, projectRoot = '.') {
   if (!verificationContent) {
     errors.push(`Verification file missing: ${config.verificationFile}`);
   } else {
-    // Check 3: No forbidden patterns in verification file
-    const forbiddenPattern = findForbiddenPattern(verificationContent);
-    if (forbiddenPattern) {
-      errors.push(`Verification file contains incomplete marker: ${forbiddenPattern}`);
+    // Check 3: Structured verification status is PASS
+    const verificationStatus = parseStatusSection(verificationContent);
+    if (classifyStructuredStatus(verificationStatus) !== 'pass') {
+      errors.push(`Verification Status is not PASS: ${verificationStatus || 'MISSING'}`);
     }
 
-    // Check 4: Required verification text present
+    // Check 4: Manual Result tables contain only PASS values
+    const failingManualResult = hasFailingManualResult(verificationContent);
+    if (failingManualResult) {
+      errors.push(`Verification manual Result contains incomplete marker: ${failingManualResult}`);
+    }
+
+    // Check 5: Required verification text present
     const { missing } = checkRequiredPatterns(verificationContent, config.requiredVerificationText);
     if (missing.length > 0) {
       warnings.push(`Verification file missing required text: ${missing.join(', ')}`);
     }
   }
 
-  // Check 5: Required files exist
+  // Check 6: Required files exist
   for (const file of config.requiredFiles) {
     if (!fileExists(file, worktreePath)) {
       errors.push(`Required file missing: ${file}`);
     }
   }
 
-  // Check 6: Required PNG evidence exists and is valid
+  // Check 7: Required PNG evidence exists and is valid
   for (const file of config.requiredPngEvidence || []) {
     const fullPath = path.resolve(worktreePath, file);
     if (!fs.existsSync(fullPath)) {
@@ -370,6 +555,9 @@ module.exports = {
   FORBIDDEN_VERIFICATION_TEXT,
   fileExists,
   findForbiddenPattern,
+  parseStatusSection,
+  parseManualResultRows,
+  classifyStructuredStatus,
   checkRequiredPatterns,
   readPngDimensions,
   validatePngEvidence
